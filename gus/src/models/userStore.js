@@ -117,6 +117,16 @@ class UserStore {
   }
 
   async update(uid, updates) {
+    // mustChangePassword / cannotChangePassword are mutually exclusive.
+    // Normalize BEFORE building the query, not by appending an extra SQL
+    // fragment afterward — appending was wrong whenever the caller also
+    // explicitly sent the other field in the same request (which the
+    // Manage User form always does), since that assigns the same column
+    // twice in one UPDATE and Postgres rejects it outright.
+    const patch = { ...updates };
+    if (patch.mustChangePassword === true) patch.cannotChangePassword = false;
+    if (patch.cannotChangePassword === true) patch.mustChangePassword = false;
+
     const editable = {
       fullName: 'full_name', description: 'description', theme: 'theme',
       disabled: 'disabled', mustChangePassword: 'must_change_password',
@@ -128,17 +138,12 @@ class UserStore {
     const values = [];
     let i = 1;
     for (const [key, column] of Object.entries(editable)) {
-      if (Object.prototype.hasOwnProperty.call(updates, key)) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) {
         sets.push(`${column} = $${i++}`);
-        values.push(updates[key]);
+        values.push(patch[key]);
       }
     }
     if (!sets.length) return this.getProfile(uid);
-
-    // mustChangePassword / cannotChangePassword are mutually exclusive,
-    // same rule as the old panel — enforce server-side.
-    if (updates.mustChangePassword === true) { sets.push(`cannot_change_password = false`); }
-    if (updates.cannotChangePassword === true) { sets.push(`must_change_password = false`); }
 
     values.push(uid);
     const { rows } = await this.pool.query(

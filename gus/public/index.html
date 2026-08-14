@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GUS — Global User System</title>
+<style>
+  :root {
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --radius: 10px;
+  }
+  /* ---- theme palettes ---- */
+  html, [data-theme="ember"] {
+    --bg: #14100e; --bg-alt: #191411; --surface: #1c1613; --surface-2: #221b17;
+    --border: #2e2521; --border-soft: #241d19;
+    --text: #f2ece6; --text-dim: #b5a99f; --text-faint: #7c7069;
+    --accent: #ff8a4c; --accent-dim: #d96f3a; --accent-glow: rgba(255,138,76,0.18);
+    --green: #7ac77a; --red: #e5675f; --yellow: #e0b84c; --blue: #6fa8d8;
+  }
+  [data-theme="ocean"] {
+    --bg: #0b1420; --bg-alt: #0e1826; --surface: #101d2e; --surface-2: #142338;
+    --border: #1f3450; --border-soft: #182a42;
+    --text: #e8f1fb; --text-dim: #9db3cc; --text-faint: #6c839e;
+    --accent: #4fb8e8; --accent-dim: #3a95c0; --accent-glow: rgba(79,184,232,0.18);
+    --green: #6fd0a8; --red: #e5675f; --yellow: #e0b84c; --blue: #6fa8d8;
+  }
+  [data-theme="forest"] {
+    --bg: #0f1710; --bg-alt: #121c13; --surface: #162117; --surface-2: #1c2b1d;
+    --border: #263a26; --border-soft: #1f301f;
+    --text: #eaf3ea; --text-dim: #a9c2ab; --text-faint: #728a73;
+    --accent: #6fcf7a; --accent-dim: #52ab5e; --accent-glow: rgba(111,207,122,0.18);
+    --green: #7ac77a; --red: #e5675f; --yellow: #e0b84c; --blue: #6fa8d8;
+  }
+  [data-theme="light"] {
+    --bg: #f5f2ee; --bg-alt: #ffffff; --surface: #ffffff; --surface-2: #f7f4f0;
+    --border: #e2dcd4; --border-soft: #ece7e0;
+    --text: #221b16; --text-dim: #6b6058; --text-faint: #948b82;
+    --accent: #e07030; --accent-dim: #c65f24; --accent-glow: rgba(224,112,48,0.12);
+    --green: #3f9450; --red: #c94840; --yellow: #b4890f; --blue: #3778ab;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); transition: background .2s, color .2s; }
+  #app { min-height: 100vh; display: flex; flex-direction: column; }
+  a { color: var(--accent); }
+  ::selection { background: var(--accent-glow); }
+
+  /* ---- brand mark ---- */
+  .brandmark { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: 0.01em; font-size: 16px; }
+  .brandmark .logo { width: 26px; height: 26px; flex-shrink: 0; }
+  .brandmark .dot { fill: var(--accent); }
+  .brandmark .ring { stroke: var(--text-dim); }
+  .brandmark .word span { color: var(--accent); }
+
+  /* ---- login ---- */
+  .center-screen { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow: hidden; }
+  .center-screen::before {
+    content: ''; position: absolute; inset: -20%; z-index: 0; pointer-events: none;
+    background: radial-gradient(circle at 30% 20%, var(--accent-glow), transparent 55%),
+                radial-gradient(circle at 80% 80%, var(--accent-glow), transparent 45%);
+    opacity: .8;
+  }
+  .card { position: relative; z-index: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 34px; width: 100%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.35); }
+  .card .brandmark { justify-content: center; margin-bottom: 6px; font-size: 20px; }
+  .card .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 22px; text-align: center; }
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--text-dim); margin: 14px 0 6px; letter-spacing: .01em; }
+  input, select, textarea { width: 100%; background: var(--bg-alt); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 10px 11px; font-size: 14px; font-family: var(--sans); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow); }
+  button { cursor: pointer; border: none; border-radius: 7px; padding: 9px 15px; font-size: 13px; font-weight: 600; font-family: var(--sans); transition: transform .08s, background .15s, border-color .15s, color .15s; }
+  button:active { transform: scale(0.97); }
+  .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-dim)); color: #1a1008; }
+  [data-theme="light"] .btn-primary { color: #fff; }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text-faint); }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); opacity: .85; }
+  .btn-danger:hover { opacity: 1; background: rgba(229,103,95,0.08); }
+  .btn-block { width: 100%; margin-top: 20px; padding: 11px; font-size: 14px; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .err { color: var(--red); font-size: 13px; margin-top: 10px; min-height: 16px; }
+  .hint { color: var(--text-faint); font-size: 12px; margin-top: 4px; line-height: 1.5; }
+
+  /* ---- shell ---- */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border-soft); background: var(--bg-alt); }
+  header .who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-dim); }
+  .avatar-chip { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: var(--accent); flex-shrink: 0; }
+  .role-pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+  .role-pill.owner { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
+  .role-pill.admin { color: var(--blue); border-color: var(--blue); }
+  .role-pill.moderator { color: var(--text-dim); }
+
+  main { flex: 1; display: flex; }
+  nav { width: 208px; border-right: 1px solid var(--border-soft); padding: 18px 12px; background: var(--bg-alt); }
+  nav .navlabel { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); padding: 4px 12px 8px; }
+  nav button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; color: var(--text-dim); padding: 9px 12px; border-radius: 8px; font-weight: 600; margin-bottom: 2px; font-size: 13px; }
+  nav button svg { width: 16px; height: 16px; flex-shrink: 0; opacity: .8; }
+  nav button:hover { background: var(--surface-2); color: var(--text); }
+  nav button.active { background: var(--accent-glow); color: var(--accent); }
+  nav button.active svg { opacity: 1; }
+  section.content { flex: 1; padding: 30px 34px; max-width: 920px; animation: fadein .18s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  h2 { font-size: 19px; margin: 0 0 4px; display: flex; align-items: center; gap: 9px; }
+  .pagesub { color: var(--text-faint); font-size: 13px; margin-bottom: 22px; }
+
+  /* ---- stat cards ---- */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 26px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .stat-card .num { font-size: 26px; font-weight: 800; color: var(--accent); line-height: 1.1; }
+  .stat-card .label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 18px; }
+  .panel h3 { margin: 0 0 14px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .panel h3 svg { width: 15px; height: 15px; color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+  th { color: var(--text-faint); font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.04em; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface-2); }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border); color: var(--text-dim); display: inline-block; }
+  .badge.owner { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
+  .badge.admin { color: var(--blue); border-color: var(--blue); }
+  .badge.moderator { color: var(--text-dim); }
+  .badge.disabled { color: var(--red); border-color: var(--red); }
+  .badge.ok { color: var(--green); border-color: var(--green); }
+  .badge.warn { color: var(--yellow); border-color: var(--yellow); }
+  .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .name-cell { display: flex; align-items: center; gap: 10px; }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; }
+  .toolbar input[type=text] { max-width: 220px; }
+
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 50; animation: fadein .12s ease; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; width: 440px; max-width: 92vw; max-height: 86vh; overflow-y: auto; }
+  .modal h3 { margin: 0 0 16px; font-size: 16px; }
+  .modal-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 20px; }
+  .modal-actions .right { display: flex; gap: 8px; margin-left: auto; }
+  .secret-box { font-family: var(--mono); background: var(--bg-alt); border: 1px solid var(--border); padding: 10px; border-radius: 7px; font-size: 12px; word-break: break-all; margin-top: 8px; color: var(--green); }
+  .muted { color: var(--text-faint); font-size: 12px; }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface); border: 1px solid var(--border); padding: 12px 16px; border-radius: 9px; font-size: 13px; z-index: 60; box-shadow: 0 8px 24px rgba(0,0,0,0.3); animation: fadein .15s ease; }
+  .toast.err { border-color: var(--red); color: var(--red); }
+  .toast.ok { border-color: var(--green); color: var(--green); }
+  .checkline { display: flex; align-items: center; gap: 9px; margin: 12px 0; font-size: 13px; }
+  .checkline input { width: auto; }
+  .divider { height: 1px; background: var(--border-soft); margin: 20px 0; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* ---- account page specific ---- */
+  .avatar-big-wrap { display: flex; align-items: center; gap: 18px; margin-bottom: 22px; }
+  .avatar-big { width: 74px; height: 74px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; color: var(--accent); cursor: pointer; position: relative; flex-shrink: 0; }
+  .avatar-big:hover::after { content: 'Change'; position: absolute; inset: 0; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .theme-swatches { display: flex; gap: 10px; margin-top: 6px; }
+  .swatch { width: 40px; height: 40px; border-radius: 9px; cursor: pointer; border: 2px solid transparent; position: relative; }
+  .swatch.selected { border-color: var(--accent); }
+  .swatch.ember { background: linear-gradient(135deg, #ff8a4c, #14100e); }
+  .swatch.ocean { background: linear-gradient(135deg, #4fb8e8, #0b1420); }
+  .swatch.forest { background: linear-gradient(135deg, #6fcf7a, #0f1710); }
+  .swatch.light { background: linear-gradient(135deg, #e07030, #f5f2ee); }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px; }
+  .detail-grid .k { color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+  .detail-grid .v { color: var(--text); font-family: var(--mono); font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+
+const ICONS = {
+  dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  account: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c1.5-4 5-6 7.5-6s6 2 7.5 6"/></svg>',
+  users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M2.5 19c1-3.3 3.8-5 6.5-5s5.5 1.7 6.5 5"/><circle cx="17" cy="7" r="2.3"/><path d="M15.5 12.3c2 .2 3.8 1.8 4.5 4.2"/></svg>',
+  apps: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>',
+  activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 5l3 3M13 8l2 2"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
+};
+
+const state = { profile: null, view: 'dashboard' };
+
+async function api(path, opts = {}) {
+  const isForm = opts.body instanceof FormData;
+  const res = await fetch('/api' + path, {
+    method: opts.method || 'GET',
+    headers: (opts.body && !isForm) ? { 'Content-Type': 'application/json' } : {},
+    body: opts.body ? (isForm ? opts.body : JSON.stringify(opts.body)) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* no body */ }
+  if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
+  return data;
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme && ['ember','ocean','forest','light'].includes(theme) ? theme : 'ember');
+}
+
+function toast(msg, kind) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (kind || '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (v === null || v === undefined) return;
+    if (k === 'text') node.textContent = v;
+    else if (k === 'html') node.innerHTML = v;
+    else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  });
+  (children || []).forEach((c) => c && node.appendChild(c));
+  return node;
+}
+
+function icon(name) { return el('span', { html: ICONS[name] || '' }); }
+
+function initials(name) {
+  return (name || '?').trim().charAt(0).toUpperCase();
+}
+
+function avatarNode(user, size) {
+  const cls = size === 'big' ? 'avatar-big' : 'avatar-chip';
+  if (user && user.avatarExt) {
+    return el('img', { class: cls, src: `/avatars/${user.uid}.${user.avatarExt}?v=${Date.now()}`, alt: '' });
+  }
+  return el('div', { class: cls, text: initials(user ? user.username : '?') });
+}
+
+function brandmark(big) {
+  const logo = `<svg class="logo" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
+    <circle class="ring" cx="13" cy="13" r="10.5" fill="none" stroke-width="1.6" opacity=".5"/>
+    <circle class="dot" cx="13" cy="4.2" r="2.6"/>
+    <circle class="dot" cx="13" cy="13" r="3.4" opacity=".9"/>
+  </svg>`;
+  return el('div', { class: 'brandmark', html: `${logo}<span class="word">G<span>U</span>S</span>` });
+}
+
+/* ---------------- boot ---------------- */
+async function boot() {
+  applyTheme('ember');
+  try {
+    const { profile, requirePasswordChange } = await api('/session');
+    state.profile = profile;
+    applyTheme(profile.theme);
+    if (requirePasswordChange) return renderForceChange();
+    render();
+  } catch (e) {
+    renderLogin();
+  }
+}
+
+/* ---------------- login ---------------- */
+function renderLogin() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const errEl = el('div', { class: 'err' });
+  const username = el('input', { type: 'text', autocomplete: 'username', placeholder: 'yourname' });
+  const password = el('input', { type: 'password', autocomplete: 'current-password', placeholder: '••••••••' });
+
+  async function submit() {
+    errEl.textContent = '';
+    try {
+      const { profile, requirePasswordChange } = await api('/session/login', {
+        method: 'POST', body: { username: username.value, password: password.value },
+      });
+      state.profile = profile;
+      applyTheme(profile.theme);
+      if (requirePasswordChange) return renderForceChange();
+      render();
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  const form = el('div', { class: 'card' }, [
+    brandmark(),
+    el('div', { class: 'sub', text: 'Global User System' }),
+    el('label', { text: 'Username' }), username,
+    el('label', { text: 'Password' }), password,
+    errEl,
+    el('button', { class: 'btn-primary btn-block', text: 'Sign in', onclick: submit }),
+  ]);
+  password.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  app.appendChild(el('div', { class: 'center-screen' }, [form]));
+  username.focus();
+}
+
+/* ---------------- forced password change ---------------- */
+function renderForceChange() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const errEl = el('div', { class: 'err' });
+  const pw1 = el('input', { type: 'password', placeholder: 'At least 8 characters' });
+  const pw2 = el('input', { type: 'password', placeholder: 'Repeat it' });
+
+  async function submit() {
+    errEl.textContent = '';
+    try {
+      await api('/account/password', { method: 'PUT', body: { newPassword: pw1.value, confirmPassword: pw2.value } });
+      toast('Password updated', 'ok');
+      render();
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  const form = el('div', { class: 'card' }, [
+    brandmark(),
+    el('div', { class: 'sub', text: 'This account requires a new password before continuing.' }),
+    el('label', { text: 'New password' }), pw1,
+    el('label', { text: 'Confirm new password' }), pw2,
+    errEl,
+    el('button', { class: 'btn-primary btn-block', text: 'Update password', onclick: submit }),
+  ]);
+  app.appendChild(el('div', { class: 'center-screen' }, [form]));
+}
+
+/* ---------------- shell ---------------- */
+function render() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+
+  const isOwner = state.profile.role === 'owner';
+  const tabs = [['dashboard', 'Dashboard', 'dashboard'], ['account', 'My Account', 'account']];
+  if (isOwner) tabs.push(['users', 'Users', 'users'], ['apps', 'Apps', 'apps'], ['activity', 'Activity', 'activity']);
+
+  const navEl = el('nav', {}, [
+    el('div', { class: 'navlabel', text: 'Navigate' }),
+    ...tabs.map(([id, label, ic]) =>
+      el('button', {
+        class: state.view === id ? 'active' : '',
+        onclick: () => { state.view = id; render(); },
+      }, [icon(ic), el('span', { text: label })])
+    ),
+  ]);
+
+  const header = el('header', {}, [
+    brandmark(),
+    el('div', { class: 'who' }, [
+      el('span', { class: 'role-pill ' + state.profile.role, text: state.profile.role }),
+      avatarNode(state.profile, 'small'),
+      el('span', { text: state.profile.username }),
+      el('button', { class: 'btn-ghost btn-sm', text: 'Sign out', onclick: logout }),
+    ]),
+  ]);
+
+  const content = el('section', { class: 'content', id: 'content' });
+  app.appendChild(el('div', {}, [header, el('main', {}, [navEl, content])]));
+
+  if (state.view === 'dashboard') renderDashboard(content);
+  if (state.view === 'account') renderAccount(content);
+  if (state.view === 'users') renderUsers(content);
+  if (state.view === 'apps') renderApps(content);
+  if (state.view === 'activity') renderActivity(content);
+}
+
+async function logout() {
+  await api('/session/logout', { method: 'POST' });
+  state.profile = null;
+  renderLogin();
+}
+
+/* ---------------- dashboard ---------------- */
+async function renderDashboard(content) {
+  content.innerHTML = '';
+  const isOwner = state.profile.role === 'owner';
+
+  const cards = [
+    el('div', { class: 'stat-card' }, [
+      el('div', { class: 'num', text: state.profile.role }),
+      el('div', { class: 'label', text: 'Your role' }),
+    ]),
+    el('div', { class: 'stat-card' }, [
+      el('div', { class: 'num', text: state.profile.mustChangePassword ? 'Pending' : 'Good' }),
+      el('div', { class: 'label', text: 'Password status' }),
+    ]),
+  ];
+
+  const wrap = el('div', {}, [
+    el('h2', {}, [icon('dashboard'), el('span', { text: 'Dashboard' })]),
+    el('div', { class: 'pagesub', text: `Welcome back, ${state.profile.username}.` }),
+  ]);
+  content.appendChild(wrap);
+
+  if (isOwner) {
+    try {
+      const [users, apps, activity] = await Promise.all([api('/users'), api('/apps'), api('/activity')]);
+      const today = new Date().toDateString();
+      const signInsToday = activity.filter((a) => a.category === 'auth' && new Date(a.created_at).toDateString() === today).length;
+      cards.push(
+        el('div', { class: 'stat-card' }, [el('div', { class: 'num', text: users.length }), el('div', { class: 'label', text: 'Total users' })]),
+        el('div', { class: 'stat-card' }, [el('div', { class: 'num', text: apps.length }), el('div', { class: 'label', text: 'Registered apps' })]),
+        el('div', { class: 'stat-card' }, [el('div', { class: 'num', text: signInsToday }), el('div', { class: 'label', text: 'Sign-ins today' })]),
+      );
+      content.appendChild(el('div', { class: 'stat-grid' }, cards));
+
+      const feed = el('div', { class: 'panel' }, [
+        el('h3', {}, [icon('activity'), el('span', { text: 'Recent activity' })]),
+        el('table', {}, [
+          el('tbody', {}, activity.slice(0, 8).map((a) => el('tr', {}, [
+            el('td', { style: 'width:120px', text: new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }),
+            el('td', {}, [el('span', { class: 'badge', text: a.category })]),
+            el('td', { text: a.message }),
+          ]))),
+        ]),
+      ]);
+      content.appendChild(feed);
+    } catch (e) { /* non-fatal, just show the basic cards */ content.appendChild(el('div', { class: 'stat-grid' }, cards)); }
+  } else {
+    content.appendChild(el('div', { class: 'stat-grid' }, cards));
+    content.appendChild(el('div', { class: 'panel' }, [
+      el('h3', {}, [icon('key'), el('span', { text: 'Tip' })]),
+      el('div', { class: 'muted', text: 'Head to My Account to update your profile, change your theme, or set a new password.' }),
+    ]));
+  }
+}
+
+/* ---------------- account tab ---------------- */
+async function renderAccount(content) {
+  const profile = await api('/account');
+  content.innerHTML = '';
+
+  const fileInput = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', style: 'display:none' });
+  fileInput.addEventListener('change', async () => {
+    if (!fileInput.files[0]) return;
+    const fd = new FormData();
+    fd.append('avatar', fileInput.files[0]);
+    try {
+      await api('/account/avatar', { method: 'POST', body: fd });
+      toast('Avatar updated', 'ok');
+      renderAccount(content);
+    } catch (e) { toast(e.message, 'err'); }
+  });
+  const avatarEl = avatarNode(profile, 'big');
+  avatarEl.addEventListener('click', () => fileInput.click());
+
+  const fullName = el('input', { type: 'text', value: profile.fullName || '', placeholder: 'Your name' });
+  const description = el('textarea', { rows: '3', placeholder: 'A short bio or note' }); description.value = profile.description || '';
+
+  async function saveProfile() {
+    try {
+      await api('/account', { method: 'PUT', body: { fullName: fullName.value, description: description.value } });
+      toast('Saved', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  const swatches = ['ember', 'ocean', 'forest', 'light'].map((t) => {
+    const sw = el('div', { class: 'swatch ' + t + (profile.theme === t ? ' selected' : '') });
+    sw.addEventListener('click', async () => {
+      applyTheme(t);
+      document.querySelectorAll('.swatch').forEach((s) => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      try { await api('/account', { method: 'PUT', body: { theme: t } }); toast('Theme updated', 'ok'); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+    return sw;
+  });
+
+  const cur = el('input', { type: 'password', placeholder: 'Current password' });
+  const npw = el('input', { type: 'password', placeholder: 'New password' });
+  const cpw = el('input', { type: 'password', placeholder: 'Confirm new password' });
+  async function changePw() {
+    try {
+      await api('/account/password', { method: 'PUT', body: { currentPassword: cur.value, newPassword: npw.value, confirmPassword: cpw.value } });
+      toast('Password changed', 'ok');
+      cur.value = npw.value = cpw.value = '';
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  content.appendChild(el('div', {}, [
+    el('h2', {}, [icon('account'), el('span', { text: 'My Account' })]),
+    el('div', { class: 'pagesub', text: 'Your profile, appearance, and login.' }),
+
+    el('div', { class: 'panel' }, [
+      el('div', { class: 'avatar-big-wrap' }, [avatarEl, fileInput, el('div', {}, [
+        el('div', { style: 'font-weight:700;font-size:15px', text: profile.username }),
+        el('div', { class: 'muted', text: 'Click your avatar to change it — PNG, JPEG, or WEBP, up to 2MB.' }),
+      ])]),
+      el('label', { text: 'Full name' }), fullName,
+      el('label', { text: 'Description' }), description,
+      el('button', { class: 'btn-primary', text: 'Save profile', style: 'margin-top:14px', onclick: saveProfile }),
+
+      el('div', { class: 'divider' }),
+      el('label', { text: 'Theme' }),
+      el('div', { class: 'theme-swatches' }, swatches),
+    ]),
+
+    el('div', { class: 'panel' }, [
+      el('h3', {}, [icon('key'), el('span', { text: 'Change password' })]),
+      el('label', { text: 'Current password' }), cur,
+      el('label', { text: 'New password' }), npw,
+      el('label', { text: 'Confirm new password' }), cpw,
+      el('button', { class: 'btn-primary', text: 'Update password', style: 'margin-top:14px', onclick: changePw }),
+    ]),
+
+    el('div', { class: 'panel' }, [
+      el('h3', {}, [icon('clock'), el('span', { text: 'Account details' })]),
+      el('div', { class: 'detail-grid' }, [
+        el('div', {}, [el('div', { class: 'k', text: 'User ID' }), el('div', { class: 'v', text: profile.uid })]),
+        el('div', {}, [el('div', { class: 'k', text: 'Role' }), el('div', { class: 'v', text: profile.role })]),
+        el('div', {}, [el('div', { class: 'k', text: 'Member since' }), el('div', { class: 'v', text: new Date(profile.createdAt).toLocaleDateString() })]),
+        el('div', {}, [el('div', { class: 'k', text: 'Last login' }), el('div', { class: 'v', text: profile.lastLogin ? new Date(profile.lastLogin).toLocaleString() : '—' })]),
+      ]),
+    ]),
+  ]));
+}
+
+/* ---------------- users tab (owner only) ---------------- */
+async function renderUsers(content) {
+  const users = await api('/users');
+  content.innerHTML = '';
+
+  const search = el('input', { type: 'text', placeholder: 'Search username…' });
+  const tbody = el('tbody', {}, users.map(userRow));
+  search.addEventListener('input', () => {
+    const q = search.value.toLowerCase();
+    tbody.innerHTML = '';
+    users.filter((u) => u.username.toLowerCase().includes(q)).forEach((u) => tbody.appendChild(userRow(u)));
+  });
+
+  const table = el('table', {}, [
+    el('thead', {}, [el('tr', {}, ['User', 'Role', 'Status', ''].map((h) => el('th', { text: h })))]),
+    tbody,
+  ]);
+  content.appendChild(el('div', {}, [
+    el('h2', {}, [icon('users'), el('span', { text: 'Users' })]),
+    el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with GUS.` }),
+    el('div', { class: 'toolbar' }, [
+      search,
+      el('button', { class: 'btn-primary', text: '+ New user', onclick: () => openCreateUserModal() }),
+    ]),
+    table,
+  ]));
+}
+
+function userRow(u) {
+  const roleBadge = el('span', { class: 'badge ' + u.role, text: u.role });
+  const statusBadge = u.disabled ? el('span', { class: 'badge disabled', text: 'disabled' })
+    : (u.mustChangePassword ? el('span', { class: 'badge warn', text: 'must change pw' }) : el('span', { class: 'badge ok', text: 'active' }));
+  const editBtn = el('button', { class: 'btn-ghost btn-sm', text: 'Manage', onclick: () => openManageUserModal(u) });
+  return el('tr', {}, [
+    el('td', {}, [el('div', { class: 'name-cell' }, [avatarNode(u, 'small'), el('span', { text: u.username })])]),
+    el('td', {}, [roleBadge]),
+    el('td', {}, [statusBadge]),
+    el('td', { class: 'row-actions' }, [editBtn]),
+  ]);
+}
+
+function openCreateUserModal() {
+  const username = el('input', { type: 'text', placeholder: 'username' });
+  const password = el('input', { type: 'password', placeholder: 'temporary password' });
+  const fullName = el('input', { type: 'text', placeholder: 'optional' });
+  const role = el('select', {}, ['moderator', 'admin', 'owner'].map((r) => el('option', { value: r, text: r })));
+  const errEl = el('div', { class: 'err' });
+
+  function genPassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#%';
+    let out = '';
+    for (let i = 0; i < 14; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    password.value = out;
+    password.type = 'text';
+  }
+
+  async function submit() {
+    try {
+      await api('/users', { method: 'POST', body: { username: username.value, password: password.value, role: role.value, fullName: fullName.value } });
+      closeModal();
+      toast('User created — they will be required to change their password on first login', 'ok');
+      renderUsers(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  openModal([
+    el('h3', {}, [icon('users'), el('span', { text: 'New user' })]),
+    el('label', { text: 'Username' }), username,
+    el('label', { text: 'Full name (optional)' }), fullName,
+    el('label', { text: 'Temporary password' }), el('div', { style: 'display:flex;gap:8px' }, [password, el('button', { class: 'btn-ghost btn-sm', text: 'Generate', onclick: genPassword })]),
+    el('div', { class: 'hint', text: 'At least 8 characters. They\u2019ll be forced to change it on first login, no matter what.' }),
+    el('label', { text: 'Role' }), role,
+    errEl,
+    el('div', { class: 'modal-actions' }, [
+      el('div', { class: 'right' }, [
+        el('button', { class: 'btn-ghost', text: 'Cancel', onclick: closeModal }),
+        el('button', { class: 'btn-primary', text: 'Create', onclick: submit }),
+      ]),
+    ]),
+  ]);
+}
+
+function openManageUserModal(u) {
+  const role = el('select', {}, ['moderator', 'admin', 'owner'].map((r) => el('option', { value: r, text: r, selected: r === u.role ? 'selected' : null })));
+  const fullName = el('input', { type: 'text', value: u.fullName || '' });
+  const description = el('textarea', { rows: '2' }); description.value = u.description || '';
+  const disabled = el('input', { type: 'checkbox' }); disabled.checked = u.disabled;
+
+  const mustChange = el('input', { type: 'checkbox' }); mustChange.checked = !!u.mustChangePassword;
+  const cannotChange = el('input', { type: 'checkbox' }); cannotChange.checked = !!u.cannotChangePassword;
+  mustChange.addEventListener('change', () => { if (mustChange.checked) cannotChange.checked = false; });
+  cannotChange.addEventListener('change', () => { if (cannotChange.checked) mustChange.checked = false; });
+
+  const neverExpires = el('input', { type: 'checkbox' }); neverExpires.checked = u.passwordNeverExpires !== false;
+  const expiresAt = el('input', { type: 'date', value: u.passwordExpiresAt ? u.passwordExpiresAt.slice(0, 10) : '' });
+  expiresAt.disabled = neverExpires.checked;
+  neverExpires.addEventListener('change', () => { expiresAt.disabled = neverExpires.checked; });
+
+  const newPw = el('input', { type: 'password', placeholder: 'Leave blank to keep current password' });
+  const errEl = el('div', { class: 'err' });
+
+  async function save() {
+    try {
+      const body = {
+        role: role.value, disabled: disabled.checked, fullName: fullName.value, description: description.value,
+        mustChangePassword: mustChange.checked, cannotChangePassword: cannotChange.checked,
+        passwordNeverExpires: neverExpires.checked,
+        passwordExpiresAt: neverExpires.checked ? null : (expiresAt.value ? new Date(expiresAt.value).toISOString() : null),
+      };
+      if (newPw.value) { body.password = newPw.value; body.confirmPassword = newPw.value; }
+      await api('/users/' + u.uid, { method: 'PATCH', body });
+      closeModal();
+      toast('Updated', 'ok');
+      renderUsers(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+  async function del() {
+    if (!confirm('Delete "' + u.username + '"? This cannot be undone.')) return;
+    try {
+      await api('/users/' + u.uid, { method: 'DELETE' });
+      closeModal();
+      toast('Deleted', 'ok');
+      renderUsers(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  openModal([
+    el('h3', {}, [avatarNode(u, 'small'), el('span', { text: 'Manage ' + u.username })]),
+    el('div', { class: 'field-row' }, [
+      el('div', {}, [el('label', { text: 'Full name' }), fullName]),
+      el('div', {}, [el('label', { text: 'Role' }), role]),
+    ]),
+    el('label', { text: 'Description' }), description,
+    el('div', { class: 'checkline' }, [disabled, el('span', { text: 'Account disabled' })]),
+
+    el('div', { class: 'divider' }),
+    el('div', { class: 'muted', text: 'PASSWORD POLICY' }),
+    el('div', { class: 'checkline' }, [mustChange, el('span', { text: 'Force password change on next login' })]),
+    el('div', { class: 'checkline' }, [cannotChange, el('span', { text: 'User cannot change their own password' })]),
+    el('div', { class: 'checkline' }, [neverExpires, el('span', { text: 'Password never expires' })]),
+    el('label', { text: 'Expires on', style: 'margin-top:4px' }), expiresAt,
+
+    el('div', { class: 'divider' }),
+    el('label', { text: 'Reset password' }), newPw,
+    errEl,
+    el('div', { class: 'modal-actions' }, [
+      el('button', { class: 'btn-danger', text: 'Delete user', onclick: del }),
+      el('div', { class: 'right' }, [
+        el('button', { class: 'btn-ghost', text: 'Cancel', onclick: closeModal }),
+        el('button', { class: 'btn-primary', text: 'Save', onclick: save }),
+      ]),
+    ]),
+  ]);
+}
+
+/* ---------------- apps tab (owner only) ---------------- */
+async function renderApps(content) {
+  const apps = await api('/apps');
+  content.innerHTML = '';
+  const table = el('table', {}, [
+    el('thead', {}, [el('tr', {}, ['Name', 'Slug', 'Status', ''].map((h) => el('th', { text: h })))]),
+    el('tbody', {}, apps.map(appRow)),
+  ]);
+  content.appendChild(el('div', {}, [
+    el('h2', {}, [icon('apps'), el('span', { text: 'Registered apps' })]),
+    el('div', { class: 'pagesub', text: 'Each app gets its own appId + secret, sent as X-App-Id / X-App-Secret on every /api/v1/* request.' }),
+    el('div', { class: 'toolbar' }, [
+      el('div'),
+      el('button', { class: 'btn-primary', text: '+ Register app', onclick: openCreateAppModal }),
+    ]),
+    table,
+  ]));
+}
+
+function appRow(a) {
+  const statusBadge = a.disabled ? el('span', { class: 'badge disabled', text: 'disabled' }) : el('span', { class: 'badge ok', text: 'active' });
+  return el('tr', {}, [
+    el('td', { text: a.name }),
+    el('td', {}, [el('span', { class: 'badge', style: 'font-family:var(--mono)', text: a.slug })]),
+    el('td', {}, [statusBadge]),
+    el('td', { class: 'row-actions' }, [
+      el('button', { class: 'btn-ghost btn-sm', text: 'Regenerate secret', onclick: () => regenerateSecret(a) }),
+      el('button', { class: 'btn-ghost btn-sm', text: a.disabled ? 'Enable' : 'Disable', onclick: () => toggleApp(a) }),
+    ]),
+  ]);
+}
+
+function openCreateAppModal() {
+  const slug = el('input', { type: 'text', placeholder: 'e.g. console' });
+  const name = el('input', { type: 'text', placeholder: 'e.g. Interstellar Console' });
+  const errEl = el('div', { class: 'err' });
+
+  async function submit() {
+    try {
+      const { app, secret } = await api('/apps', { method: 'POST', body: { slug: slug.value, name: name.value } });
+      renderSecretModal(app, secret);
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  openModal([
+    el('h3', {}, [icon('apps'), el('span', { text: 'Register app' })]),
+    el('label', { text: 'Slug (used in the appId lookup)' }), slug,
+    el('label', { text: 'Display name' }), name,
+    errEl,
+    el('div', { class: 'modal-actions' }, [
+      el('div', { class: 'right' }, [
+        el('button', { class: 'btn-ghost', text: 'Cancel', onclick: closeModal }),
+        el('button', { class: 'btn-primary', text: 'Register', onclick: submit }),
+      ]),
+    ]),
+  ]);
+}
+
+function renderSecretModal(app, secret) {
+  function copy(text) { navigator.clipboard && navigator.clipboard.writeText(text); toast('Copied', 'ok'); }
+  openModal([
+    el('h3', { text: '"' + app.name + '" registered' }),
+    el('div', { class: 'muted', text: 'App ID:' }),
+    el('div', { class: 'secret-box' }, [el('span', { text: app.appId })]),
+    el('button', { class: 'btn-ghost btn-sm', text: 'Copy App ID', style: 'margin-top:6px', onclick: () => copy(app.appId) }),
+    el('div', { class: 'muted', text: 'Secret \u2014 save this now, it will not be shown again:', style: 'margin-top:14px' }),
+    el('div', { class: 'secret-box' }, [el('span', { text: secret })]),
+    el('button', { class: 'btn-ghost btn-sm', text: 'Copy Secret', style: 'margin-top:6px', onclick: () => copy(secret) }),
+    el('div', { class: 'modal-actions' }, [
+      el('div', { class: 'right' }, [
+        el('button', { class: 'btn-primary', text: 'Done', onclick: () => { closeModal(); renderApps(document.getElementById('content')); } }),
+      ]),
+    ]),
+  ]);
+}
+
+async function regenerateSecret(a) {
+  if (!confirm('Regenerate the secret for "' + a.name + '"? The old secret stops working immediately.')) return;
+  try {
+    const { app, secret } = await api('/apps/' + a.appId + '/regenerate-secret', { method: 'POST' });
+    renderSecretModal(app, secret);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function toggleApp(a) {
+  try {
+    await api('/apps/' + a.appId, { method: 'PATCH', body: { disabled: !a.disabled } });
+    renderApps(document.getElementById('content'));
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ---------------- activity tab (owner only) ---------------- */
+async function renderActivity(content) {
+  const [activity, failedLogins] = await Promise.all([api('/activity'), api('/failed-logins')]);
+  content.innerHTML = '';
+  content.appendChild(el('div', {}, [
+    el('h2', {}, [icon('activity'), el('span', { text: 'Activity' })]),
+    el('div', { class: 'pagesub', text: 'What\u2019s happened across GUS recently.' }),
+    el('div', { class: 'panel' }, [
+      el('table', {}, [
+        el('thead', {}, [el('tr', {}, ['When', 'Category', 'Message'].map((h) => el('th', { text: h })))]),
+        el('tbody', {}, activity.map((a) => el('tr', {}, [
+          el('td', { style: 'width:150px', text: new Date(a.created_at).toLocaleString() }),
+          el('td', {}, [el('span', { class: 'badge', text: a.category })]),
+          el('td', { text: a.message }),
+        ]))),
+      ]),
+    ]),
+    el('h2', { style: 'margin-top:8px' }, [icon('key'), el('span', { text: 'Failed sign-ins' })]),
+    el('div', { class: 'panel' }, [
+      el('table', {}, [
+        el('thead', {}, [el('tr', {}, ['When', 'Username', 'IP', 'Reason'].map((h) => el('th', { text: h })))]),
+        el('tbody', {}, failedLogins.map((f) => el('tr', {}, [
+          el('td', { style: 'width:150px', text: new Date(f.created_at).toLocaleString() }),
+          el('td', { text: f.username || '\u2014' }),
+          el('td', { text: f.ip || '\u2014' }),
+          el('td', {}, [el('span', { class: 'badge ' + (f.reason === 'disabled' ? 'disabled' : 'warn'), text: f.reason || '\u2014' })]),
+        ]))),
+      ]),
+    ]),
+  ]));
+}
+
+/* ---------------- modal helper ---------------- */
+function openModal(children) {
+  closeModal();
+  const backdrop = el('div', { class: 'modal-backdrop', id: 'modal-backdrop' }, [el('div', { class: 'modal' }, children)]);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+  document.body.appendChild(backdrop);
+}
+function closeModal() {
+  const existing = document.getElementById('modal-backdrop');
+  if (existing) existing.remove();
+}
+
+boot();
+</script>
+</body>
+</html>
