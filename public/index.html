@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GUS — Global User System</title>
+<style>
+  :root {
+    --bg: #14100e;
+    --surface: #1c1613;
+    --border: #2e2521;
+    --border-soft: #241d19;
+    --text: #f2ece6;
+    --text-dim: #b5a99f;
+    --text-faint: #7c7069;
+    --ember: #ff8a4c;
+    --ember-dim: #d96f3a;
+    --green: #7ac77a;
+    --red: #e5675f;
+    --yellow: #e0b84c;
+    --blue: #6fa8d8;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+  #app { min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* ---- login ---- */
+  .center-screen { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 32px; width: 100%; max-width: 380px; }
+  .card h1 { font-size: 20px; margin: 0 0 4px; }
+  .card .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
+  label { display: block; font-size: 12px; color: var(--text-dim); margin: 14px 0 6px; }
+  input, select, textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 9px 10px; font-size: 14px; font-family: var(--sans); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--ember-dim); }
+  button { cursor: pointer; border: none; border-radius: 6px; padding: 9px 14px; font-size: 13px; font-weight: 600; font-family: var(--sans); }
+  .btn-primary { background: var(--ember); color: #241407; }
+  .btn-primary:hover { background: #ff9c67; }
+  .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text-faint); }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid #4a2320; }
+  .btn-danger:hover { background: #2a1512; }
+  .btn-block { width: 100%; margin-top: 18px; padding: 10px; }
+  .err { color: var(--red); font-size: 13px; margin-top: 10px; min-height: 16px; }
+  .hint { color: var(--text-faint); font-size: 12px; margin-top: 4px; }
+
+  /* ---- shell ---- */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 22px; border-bottom: 1px solid var(--border-soft); }
+  header .brand { font-weight: 700; letter-spacing: 0.02em; }
+  header .brand span { color: var(--ember); }
+  header .who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-dim); }
+  header .role-pill { font-size: 11px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.04em; }
+  main { flex: 1; display: flex; }
+  nav { width: 190px; border-right: 1px solid var(--border-soft); padding: 16px 10px; }
+  nav button { display: block; width: 100%; text-align: left; background: none; color: var(--text-dim); padding: 9px 12px; border-radius: 6px; font-weight: 500; margin-bottom: 2px; }
+  nav button:hover { background: var(--border-soft); color: var(--text); }
+  nav button.active { background: var(--border-soft); color: var(--ember); }
+  section.content { flex: 1; padding: 26px 30px; max-width: 860px; }
+  h2 { font-size: 17px; margin: 0 0 18px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border-soft); }
+  th { color: var(--text-faint); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.03em; }
+  tr:hover td { background: rgba(255,255,255,0.015); }
+  .badge { font-size: 11px; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-dim); }
+  .badge.owner { color: var(--ember); border-color: #4a2f1a; }
+  .badge.admin { color: var(--blue); border-color: #1f3a52; }
+  .badge.moderator { color: var(--text-dim); }
+  .badge.disabled { color: var(--red); border-color: #4a2320; }
+  .row-actions { display: flex; gap: 6px; }
+  .row-actions button { padding: 4px 9px; font-size: 12px; }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 26px; width: 420px; max-width: 92vw; }
+  .modal h3 { margin: 0 0 16px; font-size: 16px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .secret-box { font-family: var(--mono); background: var(--bg); border: 1px solid var(--border); padding: 10px; border-radius: 6px; font-size: 12px; word-break: break-all; margin-top: 10px; color: var(--green); }
+  .muted { color: var(--text-faint); font-size: 12px; }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface); border: 1px solid var(--border); padding: 12px 16px; border-radius: 8px; font-size: 13px; z-index: 60; }
+  .toast.err { border-color: #4a2320; color: var(--red); }
+  .toast.ok { border-color: #2a4a2a; color: var(--green); }
+  .checkline { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 13px; }
+  .checkline input { width: auto; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+
+const state = { profile: null, view: 'account', users: [], apps: [], activity: [] };
+
+async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, {
+    method: opts.method || 'GET',
+    headers: opts.body ? { 'Content-Type': 'application/json' } : {},
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* no body */ }
+  if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
+  return data;
+}
+
+function toast(msg, kind) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (kind || '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (k === 'text') node.textContent = v;
+    else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  });
+  (children || []).forEach((c) => c && node.appendChild(c));
+  return node;
+}
+
+/* ---------------- boot ---------------- */
+async function boot() {
+  try {
+    const { profile, requirePasswordChange } = await api('/session');
+    state.profile = profile;
+    if (requirePasswordChange) return renderForceChange();
+    render();
+  } catch (e) {
+    renderLogin();
+  }
+}
+
+/* ---------------- login ---------------- */
+function renderLogin() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const errEl = el('div', { class: 'err' });
+  const username = el('input', { type: 'text', autocomplete: 'username' });
+  const password = el('input', { type: 'password', autocomplete: 'current-password' });
+
+  async function submit() {
+    errEl.textContent = '';
+    try {
+      const { profile, requirePasswordChange } = await api('/session/login', {
+        method: 'POST', body: { username: username.value, password: password.value },
+      });
+      state.profile = profile;
+      if (requirePasswordChange) return renderForceChange();
+      render();
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  const form = el('div', { class: 'card' }, [
+    el('h1', { text: 'GUS' }),
+    el('div', { class: 'sub', text: 'Global User System' }),
+    el('label', { text: 'Username' }), username,
+    el('label', { text: 'Password' }), password,
+    errEl,
+    el('button', { class: 'btn-primary btn-block', text: 'Sign in', onclick: submit }),
+  ]);
+  password.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  app.appendChild(el('div', { class: 'center-screen' }, [form]));
+}
+
+/* ---------------- forced password change ---------------- */
+function renderForceChange() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const errEl = el('div', { class: 'err' });
+  const pw1 = el('input', { type: 'password' });
+  const pw2 = el('input', { type: 'password' });
+
+  async function submit() {
+    errEl.textContent = '';
+    try {
+      await api('/account/password', { method: 'PUT', body: { newPassword: pw1.value, confirmPassword: pw2.value } });
+      toast('Password updated', 'ok');
+      render();
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  const form = el('div', { class: 'card' }, [
+    el('h1', { text: 'Set a new password' }),
+    el('div', { class: 'sub', text: 'This account requires a password change before continuing.' }),
+    el('label', { text: 'New password' }), pw1,
+    el('label', { text: 'Confirm new password' }), pw2,
+    errEl,
+    el('button', { class: 'btn-primary btn-block', text: 'Update password', onclick: submit }),
+  ]);
+  app.appendChild(el('div', { class: 'center-screen' }, [form]));
+}
+
+/* ---------------- shell ---------------- */
+function render() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+
+  const isOwner = state.profile.role === 'owner';
+  const tabs = [['account', 'My Account']];
+  if (isOwner) tabs.push(['users', 'Users'], ['apps', 'Apps'], ['activity', 'Activity']);
+
+  const navEl = el('nav', {}, tabs.map(([id, label]) =>
+    el('button', {
+      class: state.view === id ? 'active' : '', text: label,
+      onclick: () => { state.view = id; render(); },
+    })
+  ));
+
+  const header = el('header', {}, [
+    el('div', { class: 'brand' }, [document.createTextNode('GUS'), el('span', { text: ' •' })]),
+    el('div', { class: 'who' }, [
+      el('span', { class: 'role-pill', text: state.profile.role }),
+      el('span', { text: state.profile.username }),
+      el('button', { class: 'btn-ghost', text: 'Sign out', onclick: logout }),
+    ]),
+  ]);
+
+  const content = el('section', { class: 'content', id: 'content' });
+  app.appendChild(el('div', {}, [header, el('main', {}, [navEl, content])]));
+
+  if (state.view === 'account') renderAccount(content);
+  if (state.view === 'users') renderUsers(content);
+  if (state.view === 'apps') renderApps(content);
+  if (state.view === 'activity') renderActivity(content);
+}
+
+async function logout() {
+  await api('/session/logout', { method: 'POST' });
+  state.profile = null;
+  renderLogin();
+}
+
+/* ---------------- account tab ---------------- */
+async function renderAccount(content) {
+  const profile = await api('/account');
+  content.innerHTML = '';
+  const fullName = el('input', { type: 'text', value: profile.fullName || '' });
+  const description = el('textarea', { rows: '3' }); description.value = profile.description || '';
+
+  async function saveProfile() {
+    try {
+      await api('/account', { method: 'PUT', body: { fullName: fullName.value, description: description.value } });
+      toast('Saved', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  const cur = el('input', { type: 'password', placeholder: 'Current password' });
+  const npw = el('input', { type: 'password', placeholder: 'New password' });
+  const cpw = el('input', { type: 'password', placeholder: 'Confirm new password' });
+  async function changePw() {
+    try {
+      await api('/account/password', { method: 'PUT', body: { currentPassword: cur.value, newPassword: npw.value, confirmPassword: cpw.value } });
+      toast('Password changed', 'ok');
+      cur.value = npw.value = cpw.value = '';
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  content.appendChild(el('div', {}, [
+    el('h2', { text: 'My Account' }),
+    el('label', { text: 'Full name' }), fullName,
+    el('label', { text: 'Description' }), description,
+    el('button', { class: 'btn-primary', text: 'Save', style: 'margin-top:14px', onclick: saveProfile }),
+    el('h2', { text: 'Change password', style: 'margin-top:34px' }),
+    el('label', { text: 'Current password' }), cur,
+    el('label', { text: 'New password' }), npw,
+    el('label', { text: 'Confirm new password' }), cpw,
+    el('button', { class: 'btn-primary', text: 'Update password', style: 'margin-top:14px', onclick: changePw }),
+  ]));
+}
+
+/* ---------------- users tab (owner only) ---------------- */
+async function renderUsers(content) {
+  const users = await api('/users');
+  content.innerHTML = '';
+  const table = el('table', {}, [
+    el('thead', {}, [el('tr', {}, ['Username', 'Role', 'Status', ''].map((h) => el('th', { text: h })))]),
+    el('tbody', {}, users.map(userRow)),
+  ]);
+  content.appendChild(el('div', {}, [
+    el('div', { class: 'toolbar' }, [
+      el('h2', { text: 'Users', style: 'margin:0' }),
+      el('button', { class: 'btn-primary', text: '+ New user', onclick: () => openCreateUserModal() }),
+    ]),
+    table,
+  ]));
+}
+
+function userRow(u) {
+  const roleBadge = el('span', { class: 'badge ' + u.role, text: u.role });
+  const statusBadge = u.disabled ? el('span', { class: 'badge disabled', text: 'disabled' })
+    : (u.mustChangePassword ? el('span', { class: 'badge', text: 'must change pw' }) : el('span', { class: 'badge', text: 'active' }));
+  const editBtn = el('button', { class: 'btn-ghost', text: 'Manage', onclick: () => openManageUserModal(u) });
+  return el('tr', {}, [
+    el('td', { text: u.username }),
+    el('td', {}, [roleBadge]),
+    el('td', {}, [statusBadge]),
+    el('td', { class: 'row-actions' }, [editBtn]),
+  ]);
+}
+
+function openCreateUserModal() {
+  const username = el('input', { type: 'text' });
+  const password = el('input', { type: 'password' });
+  const role = el('select', {}, ['moderator', 'admin', 'owner'].map((r) => el('option', { value: r, text: r })));
+  const errEl = el('div', { class: 'err' });
+
+  async function submit() {
+    try {
+      await api('/users', { method: 'POST', body: { username: username.value, password: password.value, role: role.value } });
+      closeModal();
+      toast('User created — they will be required to change their password on first login', 'ok');
+      renderUsers(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  openModal([
+    el('h3', { text: 'New user' }),
+    el('label', { text: 'Username' }), username,
+    el('label', { text: 'Temporary password' }), password,
+    el('div', { class: 'hint', text: 'At least 8 characters. They\u2019ll be forced to change it on first login.' }),
+    el('label', { text: 'Role' }), role,
+    errEl,
+    el('div', { class: 'modal-actions' }, [
+      el('button', { class: 'btn-ghost', text: 'Cancel', onclick: closeModal }),
+      el('button', { class: 'btn-primary', text: 'Create', onclick: submit }),
+    ]),
+  ]);
+}
+
+function openManageUserModal(u) {
+  const role = el('select', {}, ['moderator', 'admin', 'owner'].map((r) => el('option', { value: r, text: r, selected: r === u.role ? 'selected' : null })));
+  const disabled = el('input', { type: 'checkbox' }); disabled.checked = u.disabled;
+  const newPw = el('input', { type: 'password', placeholder: 'Leave blank to keep current password' });
+  const errEl = el('div', { class: 'err' });
+
+  async function save() {
+    try {
+      const body = { role: role.value, disabled: disabled.checked };
+      if (newPw.value) { body.password = newPw.value; body.confirmPassword = newPw.value; }
+      await api('/users/' + u.uid, { method: 'PATCH', body });
+      closeModal();
+      toast('Updated', 'ok');
+      renderUsers(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+  async function del() {
+    if (!confirm('Delete "' + u.username + '"? This cannot be undone.')) return;
+    try {
+      await api('/users/' + u.uid, { method: 'DELETE' });
+      closeModal();
+      toast('Deleted', 'ok');
+      renderUsers(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  openModal([
+    el('h3', { text: 'Manage ' + u.username }),
+    el('label', { text: 'Role' }), role,
+    el('div', { class: 'checkline' }, [disabled, el('span', { text: 'Account disabled' })]),
+    el('label', { text: 'Reset password', style: 'margin-top:14px' }), newPw,
+    errEl,
+    el('div', { class: 'modal-actions' }, [
+      el('button', { class: 'btn-danger', text: 'Delete user', onclick: del }),
+      el('button', { class: 'btn-ghost', text: 'Cancel', onclick: closeModal }),
+      el('button', { class: 'btn-primary', text: 'Save', onclick: save }),
+    ]),
+  ]);
+}
+
+/* ---------------- apps tab (owner only) ---------------- */
+async function renderApps(content) {
+  const apps = await api('/apps');
+  content.innerHTML = '';
+  const table = el('table', {}, [
+    el('thead', {}, [el('tr', {}, ['Name', 'Slug', 'Status', ''].map((h) => el('th', { text: h })))]),
+    el('tbody', {}, apps.map(appRow)),
+  ]);
+  content.appendChild(el('div', {}, [
+    el('div', { class: 'toolbar' }, [
+      el('h2', { text: 'Registered apps', style: 'margin:0' }),
+      el('button', { class: 'btn-primary', text: '+ Register app', onclick: openCreateAppModal }),
+    ]),
+    el('div', { class: 'muted', text: 'Each app gets its own appId + secret, sent as X-App-Id / X-App-Secret on every /api/v1/* request.' }),
+    el('div', { style: 'height:14px' }),
+    table,
+  ]));
+}
+
+function appRow(a) {
+  const statusBadge = a.disabled ? el('span', { class: 'badge disabled', text: 'disabled' }) : el('span', { class: 'badge', text: 'active' });
+  return el('tr', {}, [
+    el('td', { text: a.name }),
+    el('td', { text: a.slug }),
+    el('td', {}, [statusBadge]),
+    el('td', { class: 'row-actions' }, [
+      el('button', { class: 'btn-ghost', text: 'Regenerate secret', onclick: () => regenerateSecret(a) }),
+      el('button', { class: 'btn-ghost', text: a.disabled ? 'Enable' : 'Disable', onclick: () => toggleApp(a) }),
+    ]),
+  ]);
+}
+
+function openCreateAppModal() {
+  const slug = el('input', { type: 'text', placeholder: 'e.g. console' });
+  const name = el('input', { type: 'text', placeholder: 'e.g. Interstellar Console' });
+  const errEl = el('div', { class: 'err' });
+
+  async function submit() {
+    try {
+      const { app, secret } = await api('/apps', { method: 'POST', body: { slug: slug.value, name: name.value } });
+      renderSecretModal(app, secret);
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  openModal([
+    el('h3', { text: 'Register app' }),
+    el('label', { text: 'Slug (used in the appId lookup)' }), slug,
+    el('label', { text: 'Display name' }), name,
+    errEl,
+    el('div', { class: 'modal-actions' }, [
+      el('button', { class: 'btn-ghost', text: 'Cancel', onclick: closeModal }),
+      el('button', { class: 'btn-primary', text: 'Register', onclick: submit }),
+    ]),
+  ]);
+}
+
+function renderSecretModal(app, secret) {
+  openModal([
+    el('h3', { text: '"' + app.name + '" registered' }),
+    el('div', { class: 'muted', text: 'App ID:' }),
+    el('div', { class: 'secret-box', text: app.appId }),
+    el('div', { class: 'muted', text: 'Secret \u2014 save this now, it will not be shown again:', style: 'margin-top:12px' }),
+    el('div', { class: 'secret-box', text: secret }),
+    el('div', { class: 'modal-actions' }, [
+      el('button', { class: 'btn-primary', text: 'Done', onclick: () => { closeModal(); renderApps(document.getElementById('content')); } }),
+    ]),
+  ]);
+}
+
+async function regenerateSecret(a) {
+  if (!confirm('Regenerate the secret for "' + a.name + '"? The old secret stops working immediately.')) return;
+  try {
+    const { app, secret } = await api('/apps/' + a.appId + '/regenerate-secret', { method: 'POST' });
+    renderSecretModal(app, secret);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function toggleApp(a) {
+  try {
+    await api('/apps/' + a.appId, { method: 'PATCH', body: { disabled: !a.disabled } });
+    renderApps(document.getElementById('content'));
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ---------------- activity tab (owner only) ---------------- */
+async function renderActivity(content) {
+  const [activity, failedLogins] = await Promise.all([api('/activity'), api('/failed-logins')]);
+  content.innerHTML = '';
+  content.appendChild(el('div', {}, [
+    el('h2', { text: 'Activity' }),
+    el('table', {}, [
+      el('thead', {}, [el('tr', {}, ['When', 'Category', 'Message'].map((h) => el('th', { text: h })))]),
+      el('tbody', {}, activity.map((a) => el('tr', {}, [
+        el('td', { text: new Date(a.created_at).toLocaleString() }),
+        el('td', { text: a.category }),
+        el('td', { text: a.message }),
+      ]))),
+    ]),
+    el('h2', { text: 'Failed sign-ins', style: 'margin-top:30px' }),
+    el('table', {}, [
+      el('thead', {}, [el('tr', {}, ['When', 'Username', 'IP', 'Reason'].map((h) => el('th', { text: h })))]),
+      el('tbody', {}, failedLogins.map((f) => el('tr', {}, [
+        el('td', { text: new Date(f.created_at).toLocaleString() }),
+        el('td', { text: f.username || '\u2014' }),
+        el('td', { text: f.ip || '\u2014' }),
+        el('td', { text: f.reason || '\u2014' }),
+      ]))),
+    ]),
+  ]));
+}
+
+/* ---------------- modal helper ---------------- */
+function openModal(children) {
+  closeModal();
+  const backdrop = el('div', { class: 'modal-backdrop', id: 'modal-backdrop' }, [el('div', { class: 'modal' }, children)]);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+  document.body.appendChild(backdrop);
+}
+function closeModal() {
+  const existing = document.getElementById('modal-backdrop');
+  if (existing) existing.remove();
+}
+
+boot();
+</script>
+</body>
+</html>

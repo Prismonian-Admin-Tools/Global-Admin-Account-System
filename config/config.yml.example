@@ -1,0 +1,55 @@
+# =============================================================================
+# GUS (Global User System) — configuration
+# =============================================================================
+
+server:
+  bind: "127.0.0.1"
+  port: 9200
+  # Signs the GUS's OWN frontend session cookie (used when a person logs
+  # into auth.prismonian.com directly). Unrelated to the opaque app tokens
+  # issued to client apps — change this to something random.
+  sessionSecret: "CHANGE_ME_TO_A_RANDOM_STRING"
+  # Public base URL, used for building absolute avatar links.
+  publicUrl: "https://auth.prismonian.com"
+
+database:
+  host: "127.0.0.1"
+  port: 5432
+  name: "gus"
+  user: "gus"
+  password: "CHANGE_ME"
+  ssl: false
+
+avatars:
+  directory: "./data/avatars"
+
+# Every account starts here on creation, per design: forced password
+# change on first login, no exceptions.
+newAccountDefaults:
+  mustChangePassword: true
+  role: "moderator"
+
+session:
+  # How long an app-issued opaque token stays valid without being used.
+  # Each successful /validate call slides this window forward.
+  idleTimeoutMinutes: 720   # 12 hours, matches Console's old cookie maxAge
+  # Hard ceiling regardless of activity — forces re-login eventually even
+  # for a token that's used constantly.
+  absoluteTtlDays: 30
+
+rateLimit:
+  login:
+    # Per (username, source IP) pair.
+    maxAttempts: 5
+    windowMinutes: 15
+    lockoutMinutes: 15
+  perApp:
+    # Overall request budget per calling application, so one misbehaving
+    # or compromised app can't hammer the whole service.
+    maxRequestsPerMinute: 240
+
+activity:
+  file: "./data/activity.yml"
+
+failedLogins:
+  file: "./data/failed-logins.yml"

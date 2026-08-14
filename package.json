@@ -1,0 +1,21 @@
+{
+  "name": "gus",
+  "version": "1.0.0",
+  "description": "Global User System — central identity provider for Prismonian apps (owns accounts, roles, and login; apps keep their own fine-grained data keyed by uid).",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "migrate": "node src/migrations/run.js",
+    "bootstrap": "node scripts/bootstrap.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "pg": "^8.12.0",
+    "js-yaml": "^4.1.0",
+    "bcryptjs": "^2.4.3",
+    "multer": "^2.0.0",
+    "uuid": "^9.0.1"
+  }
+}
