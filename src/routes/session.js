@@ -38,7 +38,7 @@ module.exports = function sessionRoutes({ userStore, failedLoginStore, activityL
 
     req.session.user = { uid: result.user.uid, username: result.user.username, role: result.user.role };
     await userStore.touchLogin(result.user.uid);
-    await activityLog.add('auth', `${result.user.username} signed in to GUS`, result.user.uid);
+    await activityLog.add('auth', `${result.user.username} signed in to GUS`, result.user.uid, result.user.username);
 
     res.json({ ok: true, profile: toProfile(result.user), requirePasswordChange: result.status === 'good_change_pw' });
   });

@@ -10,34 +10,39 @@
     --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --radius: 10px;
   }
-  /* ---- theme palettes ---- */
+  /* ---- ember theme, matched to the real Interstellar Console UI —
+     colors sampled directly from screenshots, not guessed. Console's
+     own look leans on the accent color + spacing for definition rather
+     than high-contrast borders (its real border-vs-surface ratio is
+     only ~1.3:1), so this intentionally follows that over abstract
+     contrast targets. ---- */
   html, [data-theme="ember"] {
-    --bg: #14100e; --bg-alt: #191411; --surface: #1c1613; --surface-2: #221b17;
-    --border: #2e2521; --border-soft: #241d19;
-    --text: #f2ece6; --text-dim: #b5a99f; --text-faint: #7c7069;
-    --accent: #ff8a4c; --accent-dim: #d96f3a; --accent-glow: rgba(255,138,76,0.18);
-    --green: #7ac77a; --red: #e5675f; --yellow: #e0b84c; --blue: #6fa8d8;
+    --bg: #0b0e11; --bg-alt: #12161b; --surface: #12161b; --surface-2: #181d24;
+    --border: #252b34; --border-soft: #1c212a;
+    --text: #e8e6e1; --text-dim: #818996; --text-faint: #4f5561;
+    --accent: #ff8a3d; --accent-dim: #d8701f; --accent-glow: rgba(255,138,61,0.20);
+    --green: #45bf9f; --red: #e2585f; --yellow: #e0b84c; --blue: #5b9dd9;
   }
   [data-theme="ocean"] {
-    --bg: #0b1420; --bg-alt: #0e1826; --surface: #101d2e; --surface-2: #142338;
-    --border: #1f3450; --border-soft: #182a42;
-    --text: #e8f1fb; --text-dim: #9db3cc; --text-faint: #6c839e;
-    --accent: #4fb8e8; --accent-dim: #3a95c0; --accent-glow: rgba(79,184,232,0.18);
-    --green: #6fd0a8; --red: #e5675f; --yellow: #e0b84c; --blue: #6fa8d8;
+    --bg: #070f18; --bg-alt: #0f1c2c; --surface: #142438; --surface-2: #1a2d44;
+    --border: #5a8abd; --border-soft: #35547d;
+    --text: #f1f7fd; --text-dim: #b7c9dd; --text-faint: #7e93ac;
+    --accent: #5fc4f5; --accent-dim: #43a2cc; --accent-glow: rgba(95,196,245,0.22);
+    --green: #7fdcb8; --red: #f07871; --yellow: #eec35c; --blue: #83b8e6;
   }
   [data-theme="forest"] {
-    --bg: #0f1710; --bg-alt: #121c13; --surface: #162117; --surface-2: #1c2b1d;
-    --border: #263a26; --border-soft: #1f301f;
-    --text: #eaf3ea; --text-dim: #a9c2ab; --text-faint: #728a73;
-    --accent: #6fcf7a; --accent-dim: #52ab5e; --accent-glow: rgba(111,207,122,0.18);
-    --green: #7ac77a; --red: #e5675f; --yellow: #e0b84c; --blue: #6fa8d8;
+    --bg: #0a1209; --bg-alt: #13200f; --surface: #182818; --surface-2: #203420;
+    --border: #63925d; --border-soft: #3d5c3a;
+    --text: #f3f9f0; --text-dim: #bcd4bb; --text-faint: #839a80;
+    --accent: #7fe08b; --accent-dim: #5fbf6b; --accent-glow: rgba(127,224,139,0.22);
+    --green: #8ed68e; --red: #f07871; --yellow: #eec35c; --blue: #83b8e6;
   }
   [data-theme="light"] {
-    --bg: #f5f2ee; --bg-alt: #ffffff; --surface: #ffffff; --surface-2: #f7f4f0;
-    --border: #e2dcd4; --border-soft: #ece7e0;
-    --text: #221b16; --text-dim: #6b6058; --text-faint: #948b82;
-    --accent: #e07030; --accent-dim: #c65f24; --accent-glow: rgba(224,112,48,0.12);
-    --green: #3f9450; --red: #c94840; --yellow: #b4890f; --blue: #3778ab;
+    --bg: #eeebe4; --bg-alt: #ffffff; --surface: #ffffff; --surface-2: #f2ede4;
+    --border: #9d8e73; --border-soft: #c9bfae;
+    --text: #16110c; --text-dim: #4c443a; --text-faint: #756a5c;
+    --accent: #d4661f; --accent-dim: #b4551a; --accent-glow: rgba(212,102,31,0.16);
+    --green: #327140; --red: #b33a32; --yellow: #93690a; --blue: #285d87;
   }
 
   * { box-sizing: border-box; }
@@ -45,6 +50,14 @@
   #app { min-height: 100vh; display: flex; flex-direction: column; }
   a { color: var(--accent); }
   ::selection { background: var(--accent-glow); }
+
+  /* ---- scrollbars, everywhere (documents and any overflow:auto panel) ---- */
+  * { scrollbar-width: thin; scrollbar-color: var(--border) var(--bg-alt); }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: var(--bg-alt); }
+  ::-webkit-scrollbar-thumb { background-color: var(--border); border-radius: 20px; border: 2px solid var(--bg-alt); }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--accent-dim); }
+  ::-webkit-scrollbar-corner { background: var(--bg-alt); }
 
   /* ---- brand mark ---- */
   .brandmark { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: 0.01em; font-size: 16px; }
@@ -153,13 +166,38 @@
   .theme-swatches { display: flex; gap: 10px; margin-top: 6px; }
   .swatch { width: 40px; height: 40px; border-radius: 9px; cursor: pointer; border: 2px solid transparent; position: relative; }
   .swatch.selected { border-color: var(--accent); }
-  .swatch.ember { background: linear-gradient(135deg, #ff8a4c, #14100e); }
-  .swatch.ocean { background: linear-gradient(135deg, #4fb8e8, #0b1420); }
-  .swatch.forest { background: linear-gradient(135deg, #6fcf7a, #0f1710); }
-  .swatch.light { background: linear-gradient(135deg, #e07030, #f5f2ee); }
+  .swatch.ember { background: linear-gradient(135deg, #ff8a3d, #0b0e11); }
+  .swatch.ocean { background: linear-gradient(135deg, #5fc4f5, #070f18); }
+  .swatch.forest { background: linear-gradient(135deg, #7fe08b, #0a1209); }
+  .swatch.light { background: linear-gradient(135deg, #d4661f, #eeebe4); }
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px; }
   .detail-grid .k { color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
   .detail-grid .v { color: var(--text); font-family: var(--mono); font-size: 12px; word-break: break-all; }
+
+  /* ---- bulk toolbar / selection ---- */
+  .bulk-bar { display: flex; align-items: center; gap: 10px; background: var(--accent-glow); border: 1px solid var(--accent-dim); border-radius: 8px; padding: 9px 14px; margin-bottom: 12px; font-size: 13px; }
+  .bulk-bar .count { font-weight: 700; color: var(--accent); }
+  .bulk-bar .spacer { flex: 1; }
+  th.checkcol, td.checkcol { width: 30px; }
+
+  /* ---- sessions list ---- */
+  .session-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+  .session-row:last-child { border-bottom: none; }
+  .session-row .info .app { font-weight: 700; }
+  .session-row .info .meta { color: var(--text-faint); font-size: 11.5px; margin-top: 2px; }
+  .empty-note { color: var(--text-faint); font-size: 13px; padding: 10px 0; }
+
+  /* ---- filter bar ---- */
+  .filter-bar { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-bar .fgroup { display: flex; flex-direction: column; gap: 4px; }
+  .filter-bar .fgroup label { margin: 0; }
+  .filter-bar input, .filter-bar select { padding: 8px 10px; font-size: 13px; width: auto; }
+
+  /* ---- logo / import dropzone ---- */
+  .logo-preview { width: 56px; height: 56px; border-radius: 10px; object-fit: contain; background: var(--bg-alt); border: 1px solid var(--border); padding: 6px; }
+  .csv-drop { border: 2px dashed var(--border); border-radius: 9px; padding: 22px; text-align: center; cursor: pointer; color: var(--text-dim); font-size: 13px; }
+  .csv-drop:hover { border-color: var(--accent-dim); color: var(--text); }
+  .import-results-table { max-height: 240px; overflow-y: auto; margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -175,9 +213,13 @@ const ICONS = {
   activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>',
   key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 5l3 3M13 8l2 2"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.9 7.9 0 000-2l2-1.5-2-3.5-2.4.5a8 8 0 00-1.7-1L15 3h-6l-.3 2.5a8 8 0 00-1.7 1l-2.4-.5-2 3.5L4.6 11a7.9 7.9 0 000 2l-2 1.5 2 3.5 2.4-.5a8 8 0 001.7 1L9 21h6l.3-2.5a8 8 0 001.7-1l2.4.5 2-3.5-2-1.5z"/></svg>',
+  monitor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
 };
 
-const state = { profile: null, view: 'dashboard' };
+const state = { profile: null, view: 'dashboard', branding: { siteName: 'GUS', logoExt: null } };
 
 async function api(path, opts = {}) {
   const isForm = opts.body instanceof FormData;
@@ -231,18 +273,32 @@ function avatarNode(user, size) {
   return el('div', { class: cls, text: initials(user ? user.username : '?') });
 }
 
-function brandmark(big) {
+function brandmark() {
+  if (state.branding.logoExt) {
+    return el('div', { class: 'brandmark' }, [
+      el('img', { class: 'logo', src: `/branding/logo.${state.branding.logoExt}?v=${state.brandingV || 0}`, alt: '' }),
+      el('span', { class: 'word', text: state.branding.siteName }),
+    ]);
+  }
   const logo = `<svg class="logo" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
     <circle class="ring" cx="13" cy="13" r="10.5" fill="none" stroke-width="1.6" opacity=".5"/>
     <circle class="dot" cx="13" cy="4.2" r="2.6"/>
     <circle class="dot" cx="13" cy="13" r="3.4" opacity=".9"/>
   </svg>`;
-  return el('div', { class: 'brandmark', html: `${logo}<span class="word">G<span>U</span>S</span>` });
+  const name = state.branding.siteName || 'GUS';
+  const wordHtml = name === 'GUS'
+    ? 'G<span>U</span>S'
+    : name.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  return el('div', { class: 'brandmark', html: `${logo}<span class="word">${wordHtml}</span>` });
 }
 
 /* ---------------- boot ---------------- */
 async function boot() {
   applyTheme('ember');
+  try {
+    state.branding = await api('/branding');
+  } catch (e) { /* fall back to default GUS branding */ }
+  document.title = `${state.branding.siteName} — Global User System`;
   try {
     const { profile, requirePasswordChange } = await api('/session');
     state.profile = profile;
@@ -323,7 +379,7 @@ function render() {
 
   const isOwner = state.profile.role === 'owner';
   const tabs = [['dashboard', 'Dashboard', 'dashboard'], ['account', 'My Account', 'account']];
-  if (isOwner) tabs.push(['users', 'Users', 'users'], ['apps', 'Apps', 'apps'], ['activity', 'Activity', 'activity']);
+  if (isOwner) tabs.push(['users', 'Users', 'users'], ['apps', 'Apps', 'apps'], ['activity', 'Activity', 'activity'], ['settings', 'Settings', 'settings']);
 
   const navEl = el('nav', {}, [
     el('div', { class: 'navlabel', text: 'Navigate' }),
@@ -353,6 +409,7 @@ function render() {
   if (state.view === 'users') renderUsers(content);
   if (state.view === 'apps') renderApps(content);
   if (state.view === 'activity') renderActivity(content);
+  if (state.view === 'settings') renderSettings(content);
 }
 
 async function logout() {
@@ -494,6 +551,8 @@ async function renderAccount(content) {
       el('button', { class: 'btn-primary', text: 'Update password', style: 'margin-top:14px', onclick: changePw }),
     ]),
 
+    el('div', { class: 'panel', id: 'sessions-panel' }, [renderSessionsPanelLoading()]),
+
     el('div', { class: 'panel' }, [
       el('h3', {}, [icon('clock'), el('span', { text: 'Account details' })]),
       el('div', { class: 'detail-grid' }, [
@@ -504,23 +563,116 @@ async function renderAccount(content) {
       ]),
     ]),
   ]));
+
+  loadOwnSessions();
 }
+
+function renderSessionsPanelLoading() {
+  return el('div', { class: 'muted', text: 'Loading active sessions…' });
+}
+
+async function loadOwnSessions() {
+  const panel = document.getElementById('sessions-panel');
+  if (!panel) return;
+  try {
+    const sessions = await api('/account/sessions');
+    if (!document.getElementById('sessions-panel')) return; // navigated away mid-fetch
+    renderSessionsInto(panel, sessions, {
+      onRevoke: async (tokenHash) => {
+        await api('/account/sessions/' + tokenHash, { method: 'DELETE' });
+        toast('Signed out of that session', 'ok');
+        loadOwnSessions();
+      },
+      onRevokeAll: async () => {
+        await api('/account/sessions/revoke-all', { method: 'POST' });
+        toast('Signed out everywhere', 'ok');
+        loadOwnSessions();
+      },
+    }, 'Apps you\u2019re currently signed into via GUS.');
+  } catch (e) {
+    panel.innerHTML = '';
+    panel.appendChild(el('div', { class: 'err', text: 'Could not load sessions: ' + e.message }));
+  }
+}
+
+function renderSessionsInto(panel, sessions, handlers, subtitle) {
+  panel.innerHTML = '';
+  const rows = sessions.length
+    ? sessions.map((s) => el('div', { class: 'session-row' }, [
+        el('div', { class: 'info' }, [
+          el('div', { class: 'app', text: s.app_name }),
+          el('div', { class: 'meta', text: `Last active ${new Date(s.last_seen_at).toLocaleString()} · expires ${new Date(s.expires_at).toLocaleDateString()}` }),
+        ]),
+        el('button', { class: 'btn-ghost btn-sm', text: 'Sign out', onclick: () => handlers.onRevoke(s.token_hash) }),
+      ]))
+    : [el('div', { class: 'empty-note', text: 'No active sessions in other apps right now.' })];
+
+  panel.appendChild(el('h3', {}, [icon('monitor'), el('span', { text: 'Active sessions' })]));
+  panel.appendChild(el('div', { class: 'muted', text: subtitle || 'Apps currently signed into via GUS.', style: 'margin-bottom:10px' }));
+  rows.forEach((r) => panel.appendChild(r));
+  if (sessions.length > 1) {
+    panel.appendChild(el('button', { class: 'btn-ghost btn-sm', text: 'Sign out everywhere', style: 'margin-top:12px', onclick: handlers.onRevokeAll }));
+  }
+}
+
 
 /* ---------------- users tab (owner only) ---------------- */
 async function renderUsers(content) {
   const users = await api('/users');
   content.innerHTML = '';
 
+  const selected = new Set();
+
+  const bulkBar = el('div', { class: 'bulk-bar', style: 'display:none' });
+  function updateBulkBar() {
+    if (!selected.size) { bulkBar.style.display = 'none'; return; }
+    bulkBar.style.display = 'flex';
+    bulkBar.innerHTML = '';
+    bulkBar.appendChild(el('span', {}, [el('span', { class: 'count', text: selected.size }), document.createTextNode(' selected')]));
+    bulkBar.appendChild(el('div', { class: 'spacer' }));
+    bulkBar.appendChild(el('button', { class: 'btn-ghost btn-sm', text: 'Enable', onclick: () => bulkPatch({ disabled: false }) }));
+    bulkBar.appendChild(el('button', { class: 'btn-ghost btn-sm', text: 'Disable', onclick: () => bulkPatch({ disabled: true }) }));
+    bulkBar.appendChild(el('button', { class: 'btn-danger btn-sm', text: 'Delete', onclick: bulkDelete }));
+  }
+
+  async function bulkPatch(body) {
+    try {
+      await Promise.all([...selected].map((uid) => api('/users/' + uid, { method: 'PATCH', body })));
+      toast(`Updated ${selected.size} user${selected.size === 1 ? '' : 's'}`, 'ok');
+      renderUsers(content);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+  async function bulkDelete() {
+    if (!confirm(`Delete ${selected.size} selected user(s)? This cannot be undone.`)) return;
+    try {
+      await Promise.all([...selected].map((uid) => api('/users/' + uid, { method: 'DELETE' })));
+      toast('Deleted', 'ok');
+      renderUsers(content);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  function makeRow(u) {
+    const row = userRow(u);
+    const cb = el('input', { type: 'checkbox' });
+    cb.checked = selected.has(u.uid);
+    cb.addEventListener('change', () => {
+      if (cb.checked) selected.add(u.uid); else selected.delete(u.uid);
+      updateBulkBar();
+    });
+    row.insertBefore(el('td', { class: 'checkcol' }, [cb]), row.firstChild);
+    return row;
+  }
+
   const search = el('input', { type: 'text', placeholder: 'Search username…' });
-  const tbody = el('tbody', {}, users.map(userRow));
+  const tbody = el('tbody', {}, users.map(makeRow));
   search.addEventListener('input', () => {
     const q = search.value.toLowerCase();
     tbody.innerHTML = '';
-    users.filter((u) => u.username.toLowerCase().includes(q)).forEach((u) => tbody.appendChild(userRow(u)));
+    users.filter((u) => u.username.toLowerCase().includes(q)).forEach((u) => tbody.appendChild(makeRow(u)));
   });
 
   const table = el('table', {}, [
-    el('thead', {}, [el('tr', {}, ['User', 'Role', 'Status', ''].map((h) => el('th', { text: h })))]),
+    el('thead', {}, [el('tr', {}, [el('th', { class: 'checkcol' }), ...['User', 'Role', 'Status', ''].map((h) => el('th', { text: h }))])]),
     tbody,
   ]);
   content.appendChild(el('div', {}, [
@@ -528,8 +680,12 @@ async function renderUsers(content) {
     el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with GUS.` }),
     el('div', { class: 'toolbar' }, [
       search,
-      el('button', { class: 'btn-primary', text: '+ New user', onclick: () => openCreateUserModal() }),
+      el('div', { style: 'display:flex;gap:8px' }, [
+        el('button', { class: 'btn-ghost', text: 'Import CSV', onclick: openImportCsvModal }),
+        el('button', { class: 'btn-primary', text: '+ New user', onclick: () => openCreateUserModal() }),
+      ]),
     ]),
+    bulkBar,
     table,
   ]));
 }
@@ -547,9 +703,111 @@ function userRow(u) {
   ]);
 }
 
+function openImportCsvModal() {
+  const fileInput = el('input', { type: 'file', accept: '.csv,text/csv', style: 'display:none' });
+  const dropzone = el('div', { class: 'csv-drop' }, [
+    icon('upload'),
+    el('div', { style: 'margin-top:8px', text: 'Click to choose a CSV file' }),
+    el('div', { class: 'hint', text: 'Header row: username,role,fullName,description (role defaults to moderator, fullName/description optional)' }),
+  ]);
+  dropzone.addEventListener('click', () => fileInput.click());
+  const errEl = el('div', { class: 'err' });
+  const resultsWrap = el('div', { class: 'import-results-table' });
+  let parsedRows = [];
+  let importedCreds = [];
+
+  function parseCsv(text) {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    if (!lines.length) return [];
+    const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
+    return lines.slice(1).map((line) => {
+      const cols = line.split(',').map((c) => c.trim());
+      const row = {};
+      header.forEach((h, i) => { row[h] = cols[i] || ''; });
+      return row;
+    });
+  }
+  function genPassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#%';
+    let out = '';
+    for (let i = 0; i < 14; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  fileInput.addEventListener('change', async () => {
+    if (!fileInput.files[0]) return;
+    const text = await fileInput.files[0].text();
+    parsedRows = parseCsv(text).filter((r) => r.username);
+    resultsWrap.innerHTML = '';
+    resultsWrap.appendChild(el('table', {}, [
+      el('thead', {}, [el('tr', {}, ['Username', 'Role'].map((h) => el('th', { text: h })))]),
+      el('tbody', {}, parsedRows.map((r) => el('tr', {}, [
+        el('td', { text: r.username }), el('td', { text: r.role || 'moderator' }),
+      ]))),
+    ]));
+    importBtn.disabled = false;
+    importBtn.textContent = `Import ${parsedRows.length} user${parsedRows.length === 1 ? '' : 's'}`;
+  });
+
+  async function runImport() {
+    errEl.textContent = '';
+    importedCreds = [];
+    const outcomes = [];
+    for (const row of parsedRows) {
+      const password = genPassword();
+      try {
+        await api('/users', { method: 'POST', body: { username: row.username, password, role: row.role || 'moderator', fullName: row.fullname || row.fullName || '', description: row.description || '' } });
+        importedCreds.push({ username: row.username, password });
+        outcomes.push(`${row.username}: created`);
+      } catch (e) {
+        outcomes.push(`${row.username}: FAILED — ${e.message}`);
+      }
+    }
+    resultsWrap.innerHTML = '';
+    resultsWrap.appendChild(el('table', {}, [
+      el('thead', {}, [el('tr', {}, ['Result'].map((h) => el('th', { text: h })))]),
+      el('tbody', {}, outcomes.map((o) => el('tr', {}, [el('td', { text: o })]))),
+    ]));
+    if (importedCreds.length) {
+      downloadBtn.style.display = 'inline-block';
+      toast(`Imported ${importedCreds.length} user${importedCreds.length === 1 ? '' : 's'}`, 'ok');
+    }
+    importBtn.style.display = 'none';
+    renderUsers(document.getElementById('content'));
+  }
+
+  function downloadCreds() {
+    const csv = 'username,temporary_password\n' + importedCreds.map((c) => `${c.username},${c.password}`).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'gus-imported-credentials.csv';
+    a.click();
+  }
+
+  const importBtn = el('button', { class: 'btn-primary', text: 'Choose a file first', disabled: 'disabled', onclick: runImport });
+  const downloadBtn = el('button', { class: 'btn-ghost', text: 'Download credentials CSV', style: 'display:none', onclick: downloadCreds });
+
+  openModal([
+    el('h3', {}, [icon('upload'), el('span', { text: 'Import users from CSV' })]),
+    dropzone, fileInput,
+    el('div', { class: 'hint', text: 'Every imported account gets a random temporary password and is forced to change it on first login, same as creating one by hand.' }),
+    errEl,
+    resultsWrap,
+    el('div', { class: 'modal-actions' }, [
+      downloadBtn,
+      el('div', { class: 'right' }, [
+        el('button', { class: 'btn-ghost', text: 'Close', onclick: closeModal }),
+        importBtn,
+      ]),
+    ]),
+  ]);
+}
+
 function openCreateUserModal() {
   const username = el('input', { type: 'text', placeholder: 'username' });
   const password = el('input', { type: 'password', placeholder: 'temporary password' });
+  const confirmPw = el('input', { type: 'password', placeholder: 'confirm temporary password' });
   const fullName = el('input', { type: 'text', placeholder: 'optional' });
   const role = el('select', {}, ['moderator', 'admin', 'owner'].map((r) => el('option', { value: r, text: r })));
   const errEl = el('div', { class: 'err' });
@@ -560,9 +818,13 @@ function openCreateUserModal() {
     for (let i = 0; i < 14; i++) out += chars[Math.floor(Math.random() * chars.length)];
     password.value = out;
     password.type = 'text';
+    confirmPw.value = out;
+    confirmPw.type = 'text';
   }
 
   async function submit() {
+    errEl.textContent = '';
+    if (password.value !== confirmPw.value) { errEl.textContent = 'Passwords do not match.'; return; }
     try {
       await api('/users', { method: 'POST', body: { username: username.value, password: password.value, role: role.value, fullName: fullName.value } });
       closeModal();
@@ -576,6 +838,7 @@ function openCreateUserModal() {
     el('label', { text: 'Username' }), username,
     el('label', { text: 'Full name (optional)' }), fullName,
     el('label', { text: 'Temporary password' }), el('div', { style: 'display:flex;gap:8px' }, [password, el('button', { class: 'btn-ghost btn-sm', text: 'Generate', onclick: genPassword })]),
+    el('label', { text: 'Confirm temporary password' }), confirmPw,
     el('div', { class: 'hint', text: 'At least 8 characters. They\u2019ll be forced to change it on first login, no matter what.' }),
     el('label', { text: 'Role' }), role,
     errEl,
@@ -605,9 +868,15 @@ function openManageUserModal(u) {
   neverExpires.addEventListener('change', () => { expiresAt.disabled = neverExpires.checked; });
 
   const newPw = el('input', { type: 'password', placeholder: 'Leave blank to keep current password' });
+  const confirmNewPw = el('input', { type: 'password', placeholder: 'Confirm new password' });
   const errEl = el('div', { class: 'err' });
 
   async function save() {
+    errEl.textContent = '';
+    if (newPw.value && newPw.value !== confirmNewPw.value) {
+      errEl.textContent = 'New password and confirmation do not match.';
+      return;
+    }
     try {
       const body = {
         role: role.value, disabled: disabled.checked, fullName: fullName.value, description: description.value,
@@ -615,7 +884,7 @@ function openManageUserModal(u) {
         passwordNeverExpires: neverExpires.checked,
         passwordExpiresAt: neverExpires.checked ? null : (expiresAt.value ? new Date(expiresAt.value).toISOString() : null),
       };
-      if (newPw.value) { body.password = newPw.value; body.confirmPassword = newPw.value; }
+      if (newPw.value) { body.password = newPw.value; body.confirmPassword = confirmNewPw.value; }
       await api('/users/' + u.uid, { method: 'PATCH', body });
       closeModal();
       toast('Updated', 'ok');
@@ -650,7 +919,12 @@ function openManageUserModal(u) {
 
     el('div', { class: 'divider' }),
     el('label', { text: 'Reset password' }), newPw,
+    el('label', { text: 'Confirm new password' }), confirmNewPw,
     errEl,
+
+    el('div', { class: 'divider' }),
+    el('div', { id: 'manage-user-sessions' }, [el('div', { class: 'muted', text: 'Loading active sessions…' })]),
+
     el('div', { class: 'modal-actions' }, [
       el('button', { class: 'btn-danger', text: 'Delete user', onclick: del }),
       el('div', { class: 'right' }, [
@@ -659,6 +933,32 @@ function openManageUserModal(u) {
       ]),
     ]),
   ]);
+
+  loadUserSessions(u.uid);
+}
+
+async function loadUserSessions(uid) {
+  const wrap = document.getElementById('manage-user-sessions');
+  if (!wrap) return;
+  try {
+    const sessions = await api('/users/' + uid + '/sessions');
+    if (!document.getElementById('manage-user-sessions')) return; // modal closed mid-fetch
+    renderSessionsInto(wrap, sessions, {
+      onRevoke: async (tokenHash) => {
+        await api('/users/' + uid + '/sessions/' + tokenHash, { method: 'DELETE' });
+        toast('Signed out of that session', 'ok');
+        loadUserSessions(uid);
+      },
+      onRevokeAll: async () => {
+        await api('/users/' + uid + '/sessions/revoke-all', { method: 'POST' });
+        toast('Signed out everywhere', 'ok');
+        loadUserSessions(uid);
+      },
+    }, 'Apps this user is currently signed into via GUS.');
+  } catch (e) {
+    wrap.innerHTML = '';
+    wrap.appendChild(el('div', { class: 'err', text: 'Could not load sessions: ' + e.message }));
+  }
 }
 
 /* ---------------- apps tab (owner only) ---------------- */
@@ -754,21 +1054,66 @@ async function toggleApp(a) {
 
 /* ---------------- activity tab (owner only) ---------------- */
 async function renderActivity(content) {
-  const [activity, failedLogins] = await Promise.all([api('/activity'), api('/failed-logins')]);
+  const categories = await api('/activity/categories');
   content.innerHTML = '';
+
+  const categorySelect = el('select', {}, [
+    el('option', { value: '', text: 'All categories' }),
+    ...categories.map((c) => el('option', { value: c, text: c })),
+  ]);
+  const actorInput = el('input', { type: 'text', placeholder: 'e.g. aledeaux' });
+  const fromInput = el('input', { type: 'date' });
+  const toInput = el('input', { type: 'date' });
+  const activityTableWrap = el('div', {});
+
+  function buildQuery(extra) {
+    const params = new URLSearchParams();
+    if (categorySelect.value) params.set('category', categorySelect.value);
+    if (actorInput.value) params.set('actor', actorInput.value);
+    if (fromInput.value) params.set('from', new Date(fromInput.value).toISOString());
+    if (toInput.value) params.set('to', new Date(toInput.value + 'T23:59:59').toISOString());
+    Object.entries(extra || {}).forEach(([k, v]) => params.set(k, v));
+    return params.toString();
+  }
+
+  async function applyFilters() {
+    const activity = await api('/activity?' + buildQuery());
+    activityTableWrap.innerHTML = '';
+    activityTableWrap.appendChild(el('table', {}, [
+      el('thead', {}, [el('tr', {}, ['When', 'Category', 'Actor', 'Message'].map((h) => el('th', { text: h })))]),
+      el('tbody', {}, activity.length ? activity.map((a) => el('tr', {}, [
+        el('td', { style: 'width:150px', text: new Date(a.created_at).toLocaleString() }),
+        el('td', {}, [el('span', { class: 'badge', text: a.category })]),
+        el('td', { text: a.actor_username || '\u2014' }),
+        el('td', { text: a.message }),
+      ])) : [el('tr', {}, [el('td', { colspan: '4', class: 'empty-note', text: 'No activity matches these filters.' })])]),
+    ]));
+  }
+
+  function exportCsv() {
+    window.open('/api/activity/export?' + buildQuery(), '_blank');
+  }
+
+  [categorySelect, actorInput, fromInput, toInput].forEach((el2) => el2.addEventListener('change', applyFilters));
+  actorInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyFilters(); });
+
+  const [, failedLogins] = await Promise.all([applyFilters(), api('/failed-logins')]);
+
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('activity'), el('span', { text: 'Activity' })]),
     el('div', { class: 'pagesub', text: 'What\u2019s happened across GUS recently.' }),
-    el('div', { class: 'panel' }, [
-      el('table', {}, [
-        el('thead', {}, [el('tr', {}, ['When', 'Category', 'Message'].map((h) => el('th', { text: h })))]),
-        el('tbody', {}, activity.map((a) => el('tr', {}, [
-          el('td', { style: 'width:150px', text: new Date(a.created_at).toLocaleString() }),
-          el('td', {}, [el('span', { class: 'badge', text: a.category })]),
-          el('td', { text: a.message }),
-        ]))),
-      ]),
+
+    el('div', { class: 'filter-bar' }, [
+      el('div', { class: 'fgroup' }, [el('label', { text: 'Category' }), categorySelect]),
+      el('div', { class: 'fgroup' }, [el('label', { text: 'Actor' }), actorInput]),
+      el('div', { class: 'fgroup' }, [el('label', { text: 'From' }), fromInput]),
+      el('div', { class: 'fgroup' }, [el('label', { text: 'To' }), toInput]),
+      el('button', { class: 'btn-ghost', text: 'Apply', onclick: applyFilters }),
+      el('button', { class: 'btn-ghost', text: 'Export CSV', onclick: exportCsv }, [icon('download')]),
     ]),
+
+    el('div', { class: 'panel' }, [activityTableWrap]),
+
     el('h2', { style: 'margin-top:8px' }, [icon('key'), el('span', { text: 'Failed sign-ins' })]),
     el('div', { class: 'panel' }, [
       el('table', {}, [
@@ -780,6 +1125,74 @@ async function renderActivity(content) {
           el('td', {}, [el('span', { class: 'badge ' + (f.reason === 'disabled' ? 'disabled' : 'warn'), text: f.reason || '\u2014' })]),
         ]))),
       ]),
+    ]),
+  ]));
+}
+
+/* ---------------- settings tab (owner only, site branding) ---------------- */
+async function renderSettings(content) {
+  const branding = await api('/branding');
+  content.innerHTML = '';
+
+  const siteName = el('input', { type: 'text', value: branding.siteName, maxlength: '60' });
+  async function saveName() {
+    try {
+      const settings = await api('/branding', { method: 'PUT', body: { siteName: siteName.value } });
+      state.branding = settings;
+      state.brandingV = (state.brandingV || 0) + 1;
+      toast('Site name updated', 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  const logoFile = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', style: 'display:none' });
+  const logoPreview = branding.logoExt
+    ? el('img', { class: 'logo-preview', src: `/branding/logo.${branding.logoExt}?v=${Date.now()}`, alt: '' })
+    : el('div', { class: 'logo-preview', style: 'display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:11px', text: 'None' });
+
+  logoFile.addEventListener('change', async () => {
+    if (!logoFile.files[0]) return;
+    const fd = new FormData();
+    fd.append('logo', logoFile.files[0]);
+    try {
+      const { settings } = await api('/branding/logo', { method: 'POST', body: fd });
+      state.branding = settings;
+      state.brandingV = (state.brandingV || 0) + 1;
+      toast('Logo updated', 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  });
+
+  async function removeLogo() {
+    try {
+      const { settings } = await api('/branding/logo', { method: 'DELETE' });
+      state.branding = settings;
+      toast('Logo removed', 'ok');
+      render();
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  content.appendChild(el('div', {}, [
+    el('h2', {}, [icon('settings'), el('span', { text: 'Settings' })]),
+    el('div', { class: 'pagesub', text: 'Branding shown on the login screen and header, for every app connected to GUS.' }),
+
+    el('div', { class: 'panel' }, [
+      el('h3', {}, [icon('account'), el('span', { text: 'Site name' })]),
+      siteName,
+      el('button', { class: 'btn-primary', text: 'Save', style: 'margin-top:14px', onclick: saveName }),
+    ]),
+
+    el('div', { class: 'panel' }, [
+      el('h3', {}, [icon('upload'), el('span', { text: 'Logo' })]),
+      el('div', { style: 'display:flex;align-items:center;gap:16px' }, [
+        logoPreview,
+        el('div', {}, [
+          el('button', { class: 'btn-ghost btn-sm', text: branding.logoExt ? 'Replace logo' : 'Upload logo', onclick: () => logoFile.click() }),
+          branding.logoExt ? el('button', { class: 'btn-ghost btn-sm', text: 'Remove', style: 'margin-left:8px', onclick: removeLogo }) : null,
+        ]),
+      ]),
+      logoFile,
+      el('div', { class: 'hint', text: 'PNG, JPEG, WEBP, or SVG, up to 1MB. Falls back to the default GUS mark if not set.' }),
     ]),
   ]));
 }

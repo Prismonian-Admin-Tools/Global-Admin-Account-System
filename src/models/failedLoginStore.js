@@ -43,6 +43,20 @@ class FailedLoginStore {
     );
     return rows;
   }
+
+  /** Clears the recorded attempts for one username — immediately lifts any active lockout on it. Returns how many rows were removed. */
+  async clear(username) {
+    const { rowCount } = await this.pool.query(
+      'DELETE FROM failed_logins WHERE lower(username) = lower($1)', [username]
+    );
+    return rowCount;
+  }
+
+  /** Clears every recorded attempt for every username — also wipes the Activity tab's "Failed sign-ins" history, not just active lockouts. */
+  async clearAll() {
+    const { rowCount } = await this.pool.query('DELETE FROM failed_logins');
+    return rowCount;
+  }
 }
 
 module.exports = { FailedLoginStore };

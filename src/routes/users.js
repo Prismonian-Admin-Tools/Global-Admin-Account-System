@@ -27,7 +27,7 @@ module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) 
       const { username, password, role, fullName, description } = req.body || {};
       if (!VALID_ROLES.includes(role)) throw new Error('Invalid role');
       const profile = await userStore.create({ username, password, role, fullName, description });
-      await activityLog.add('admin', `${actorName(req)} created user "${profile.username}" (${profile.role})`, actor(req));
+      await activityLog.add('admin', `${actorName(req)} created user "${profile.username}" (${profile.role})`, actor(req), actorName(req));
       res.json({ ok: true, profile });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -50,12 +50,12 @@ module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) 
 
       if (body.role) {
         await userStore.setRole(req.params.uid, body.role);
-        await activityLog.add('admin', `${actorName(req)} changed ${target.username}'s role to ${body.role}`, actor(req));
+        await activityLog.add('admin', `${actorName(req)} changed ${target.username}'s role to ${body.role}`, actor(req), actorName(req));
       }
 
       if (body.newUsername && body.newUsername !== target.username) {
         await userStore.rename(req.params.uid, body.newUsername);
-        await activityLog.add('admin', `${actorName(req)} renamed "${target.username}" to "${body.newUsername}"`, actor(req));
+        await activityLog.add('admin', `${actorName(req)} renamed "${target.username}" to "${body.newUsername}"`, actor(req), actorName(req));
       }
 
       if (body.password) {
@@ -65,7 +65,7 @@ module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) 
         }
         await userStore.resetPassword(req.params.uid, body.password, { clearMustChange: !body.keepMustChangeFlag });
         await sessionStore.revokeAllForUser(req.params.uid);
-        await activityLog.add('admin', `${actorName(req)} reset ${target.username}'s password`, actor(req));
+        await activityLog.add('admin', `${actorName(req)} reset ${target.username}'s password`, actor(req), actorName(req));
       }
 
       const rest = {};
@@ -75,7 +75,7 @@ module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) 
       if (Object.keys(rest).length) await userStore.update(req.params.uid, rest);
       if (body.disabled === true) {
         await sessionStore.revokeAllForUser(req.params.uid);
-        await activityLog.add('admin', `${actorName(req)} disabled "${target.username}"`, actor(req));
+        await activityLog.add('admin', `${actorName(req)} disabled "${target.username}"`, actor(req), actorName(req));
       }
 
       res.json({ ok: true, profile: await userStore.getProfile(req.params.uid) });
@@ -93,11 +93,30 @@ module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) 
       }
       await userStore.remove(req.params.uid);
       await sessionStore.revokeAllForUser(req.params.uid);
-      await activityLog.add('admin', `${actorName(req)} deleted user "${target.username}"`, actor(req));
+      await activityLog.add('admin', `${actorName(req)} deleted user "${target.username}"`, actor(req), actorName(req));
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  router.get('/users/:uid/sessions', async (req, res) => {
+    res.json(await sessionStore.listForUser(req.params.uid));
+  });
+
+  router.delete('/users/:uid/sessions/:tokenHash', async (req, res) => {
+    const ok = await sessionStore.revokeByHash(req.params.tokenHash, req.params.uid);
+    if (!ok) return res.status(404).json({ error: 'No such session' });
+    const target = await userStore.findByUid(req.params.uid);
+    await activityLog.add('admin', `${actorName(req)} signed ${target ? target.username : req.params.uid} out of a session`, actor(req), actorName(req));
+    res.json({ ok: true });
+  });
+
+  router.post('/users/:uid/sessions/revoke-all', async (req, res) => {
+    await sessionStore.revokeAllForUser(req.params.uid);
+    const target = await userStore.findByUid(req.params.uid);
+    await activityLog.add('admin', `${actorName(req)} signed ${target ? target.username : req.params.uid} out everywhere`, actor(req), actorName(req));
+    res.json({ ok: true });
   });
 
   return router;

@@ -16,7 +16,7 @@ module.exports = function appsRoutes({ appStore, activityLog }) {
     try {
       const { slug, name } = req.body || {};
       const { app, secret } = await appStore.create({ slug, name });
-      await activityLog.add('apps', `${actorName(req)} registered app "${app.name}" (${app.slug})`, actor(req));
+      await activityLog.add('apps', `${actorName(req)} registered app "${app.name}" (${app.slug})`, actor(req), actorName(req));
       res.json({ ok: true, app, secret });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -26,7 +26,7 @@ module.exports = function appsRoutes({ appStore, activityLog }) {
   router.post('/apps/:appId/regenerate-secret', async (req, res) => {
     try {
       const { app, secret } = await appStore.regenerateSecret(req.params.appId);
-      await activityLog.add('apps', `${actorName(req)} regenerated the secret for "${app.name}"`, actor(req));
+      await activityLog.add('apps', `${actorName(req)} regenerated the secret for "${app.name}"`, actor(req), actorName(req));
       res.json({ ok: true, app, secret });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -37,7 +37,7 @@ module.exports = function appsRoutes({ appStore, activityLog }) {
     try {
       if (typeof req.body?.disabled === 'boolean') {
         const app = await appStore.setDisabled(req.params.appId, req.body.disabled);
-        await activityLog.add('apps', `${actorName(req)} ${req.body.disabled ? 'disabled' : 're-enabled'} app "${app.name}"`, actor(req));
+        await activityLog.add('apps', `${actorName(req)} ${req.body.disabled ? 'disabled' : 're-enabled'} app "${app.name}"`, actor(req), actorName(req));
         return res.json({ ok: true, app });
       }
       res.status(400).json({ error: 'Nothing to update' });
@@ -49,7 +49,7 @@ module.exports = function appsRoutes({ appStore, activityLog }) {
   router.delete('/apps/:appId', async (req, res) => {
     try {
       await appStore.remove(req.params.appId);
-      await activityLog.add('apps', `${actorName(req)} deleted an app registration`, actor(req));
+      await activityLog.add('apps', `${actorName(req)} deleted an app registration`, actor(req), actorName(req));
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err.message });

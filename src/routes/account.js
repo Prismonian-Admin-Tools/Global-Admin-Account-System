@@ -59,7 +59,7 @@ module.exports = function accountRoutes({ config, userStore, sessionStore, activ
         if (!verifyPassword(currentPassword, user.password_hash)) throw new Error('Current password is incorrect');
       }
       const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
-      await activityLog.add('account', `${user.username} changed their password`, uid);
+      await activityLog.add('account', `${user.username} changed their password`, uid, user.username);
       res.json({ ok: true, profile });
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -77,6 +77,26 @@ module.exports = function accountRoutes({ config, userStore, sessionStore, activ
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  /**
+   * "Active Sessions": every app currently holding a live token for this
+   * account (issued via /api/v1/login), not the GUS frontend's own
+   * cookie session — those are separate mechanisms entirely.
+   */
+  router.get('/account/sessions', async (req, res) => {
+    res.json(await sessionStore.listForUser(myUid(req)));
+  });
+
+  router.delete('/account/sessions/:tokenHash', async (req, res) => {
+    const ok = await sessionStore.revokeByHash(req.params.tokenHash, myUid(req));
+    if (!ok) return res.status(404).json({ error: 'No such session' });
+    res.json({ ok: true });
+  });
+
+  router.post('/account/sessions/revoke-all', async (req, res) => {
+    await sessionStore.revokeAllForUser(myUid(req));
+    res.json({ ok: true });
   });
 
   return router;

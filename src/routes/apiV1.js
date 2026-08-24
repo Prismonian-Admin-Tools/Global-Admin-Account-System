@@ -37,7 +37,7 @@ module.exports = function apiV1Routes({ userStore, sessionStore, failedLoginStor
         reason: result.status === 'disabled' ? 'disabled' : 'bad-credentials',
       });
       if (result.status === 'disabled') {
-        await activityLog.add('auth', `Blocked sign-in — "${username}" is disabled (via ${req.callingApp.slug})`, null);
+        await activityLog.add('auth', `Blocked sign-in — "${username}" is disabled (via ${req.callingApp.slug})`, null, username);
       }
       return res.json({ status: result.status });
     }
@@ -45,7 +45,7 @@ module.exports = function apiV1Routes({ userStore, sessionStore, failedLoginStor
     // 'good' or 'good_change_pw'
     const token = await sessionStore.issue(result.user.uid, req.callingApp.app_id);
     await userStore.touchLogin(result.user.uid);
-    await activityLog.add('auth', `${result.user.username} signed in via ${req.callingApp.slug}`, result.user.uid);
+    await activityLog.add('auth', `${result.user.username} signed in via ${req.callingApp.slug}`, result.user.uid, result.user.username);
 
     return res.json({ status: result.status, token, user: toProfile(result.user) });
   });
@@ -106,7 +106,7 @@ module.exports = function apiV1Routes({ userStore, sessionStore, failedLoginStor
     }
 
     const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
-    await activityLog.add('account', `${user.username} changed their password (via ${req.callingApp.slug})`, uid);
+    await activityLog.add('account', `${user.username} changed their password (via ${req.callingApp.slug})`, uid, user.username);
     res.json({ status: 'ok', user: profile });
   });
 

@@ -58,6 +58,32 @@ class SessionStore {
     await this.pool.query('DELETE FROM sessions WHERE token_hash = $1 AND app_id = $2', [hash, appId]);
   }
 
+  /**
+   * Lists every active session for a user across ALL apps — this is what
+   * "Active Sessions" shows. token_hash itself is safe to hand back to
+   * the client: knowing the hash doesn't let anyone authenticate (the API
+   * needs the raw token, not its hash), it's just used as this session's
+   * id for the revoke call below.
+   */
+  async listForUser(uid) {
+    const { rows } = await this.pool.query(
+      `SELECT s.token_hash, s.app_id, a.name AS app_name, a.slug AS app_slug,
+              s.created_at, s.last_seen_at, s.expires_at
+       FROM sessions s JOIN apps a ON a.app_id = s.app_id
+       WHERE s.uid = $1 ORDER BY s.last_seen_at DESC`,
+      [uid]
+    );
+    return rows;
+  }
+
+  /** Revokes one specific session by its token_hash — scoped to a uid so a user can only ever kill their own sessions (unless the caller is an owner acting on someone else's, enforced at the route layer). */
+  async revokeByHash(tokenHash, uid) {
+    const { rowCount } = await this.pool.query(
+      'DELETE FROM sessions WHERE token_hash = $1 AND uid = $2', [tokenHash, uid]
+    );
+    return rowCount > 0;
+  }
+
   /** Used when an account is disabled/deleted/password-reset by an owner — kills every active session everywhere. */
   async revokeAllForUser(uid) {
     await this.pool.query('DELETE FROM sessions WHERE uid = $1', [uid]);
