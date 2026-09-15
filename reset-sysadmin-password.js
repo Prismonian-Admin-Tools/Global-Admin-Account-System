@@ -28,14 +28,16 @@ const NEW_PASSWORD = 'CHANGE_ME_TEMP_PASSWORD_1';
   const pool = initPool(config.database);
   const hash = bcrypt.hashSync(NEW_PASSWORD, 12);
 
-  const { rowCount } = await pool.query(
-    'UPDATE users SET password_hash = $1, must_change_password = true WHERE username = $2',
-    [hash, USERNAME]
-  );
-
-  if (rowCount === 0) {
+  // Usernames, passwords, and everything else live in separate tables —
+  // see migration 005 — so this has to look up the uid first.
+  const { rows } = await pool.query('SELECT uid FROM usernames WHERE lower(username) = lower($1)', [USERNAME]);
+  if (!rows.length) {
     console.error(`No user named "${USERNAME}" found.`);
   } else {
+    await pool.query(
+      'UPDATE passwords SET password_hash = $1, must_change_password = true WHERE uid = $2',
+      [hash, rows[0].uid]
+    );
     console.log(`Password reset for "${USERNAME}". You'll be forced to change it again on next login.`);
   }
   await pool.end();

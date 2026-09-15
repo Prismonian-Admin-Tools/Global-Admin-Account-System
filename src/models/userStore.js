@@ -4,7 +4,10 @@ const { simhash64 } = require('../utils/passwordPolicy');
 
 // Column -> API field name mapping. This is the ONLY place that decides
 // what "all their user data" means when handed to an app — never include
-// password_hash or password_simhash here.
+// password_hash or password_simhash here. Rows passed in here always
+// come from the joined SELECT below, never a raw single-table row, so
+// the field names are the same regardless of which of the three tables
+// (usernames / passwords / userdata) a given column actually lives in.
 function toProfile(row) {
   if (!row) return null;
   return {
@@ -34,6 +37,25 @@ function isPasswordExpired(row) {
   return Date.now() > new Date(row.password_expires_at).getTime();
 }
 
+// An account is really four tables — users (the stable uid anchor every
+// other table's FK points to), usernames, passwords, and userdata — but
+// every reader in this file wants the same flattened shape toProfile()
+// expects, so every read query goes through this one join. created_at
+// is the immutable "account created" date, off the anchor table;
+// updated_at is userdata's, since that's where most edits land.
+const JOINED_SELECT = `
+  SELECT u.uid, u.created_at,
+         un.username,
+         p.password_hash, p.password_simhash, p.must_change_password, p.cannot_change_password,
+         p.password_never_expires, p.password_expires_at,
+         d.role, d.full_name, d.description, d.email, d.disabled, d.theme, d.avatar_ext, d.last_login,
+         d.updated_at
+  FROM users u
+  JOIN usernames un ON un.uid = u.uid
+  JOIN passwords p ON p.uid = u.uid
+  JOIN userdata d ON d.uid = u.uid
+`;
+
 class UserStore {
   constructor(pool, rankStore, mailer = null) {
     this.pool = pool;
@@ -43,18 +65,18 @@ class UserStore {
 
   async findByUsername(username) {
     const { rows } = await this.pool.query(
-      'SELECT * FROM users WHERE lower(username) = lower($1)', [username || '']
+      `${JOINED_SELECT} WHERE lower(un.username) = lower($1)`, [username || '']
     );
     return rows[0] || null;
   }
 
   async findByUid(uid) {
-    const { rows } = await this.pool.query('SELECT * FROM users WHERE uid = $1', [uid]);
+    const { rows } = await this.pool.query(`${JOINED_SELECT} WHERE u.uid = $1`, [uid]);
     return rows[0] || null;
   }
 
   async list() {
-    const { rows } = await this.pool.query('SELECT * FROM users ORDER BY username ASC');
+    const { rows } = await this.pool.query(`${JOINED_SELECT} ORDER BY un.username ASC`);
     return rows.map(toProfile);
   }
 
@@ -77,7 +99,7 @@ class UserStore {
     return { status, user };
   }
 
-  /** New accounts always start forced to change their password — no flag to opt out of this. */
+  /** New accounts always start forced to change their password — no flag to opt out of this. Writes span three tables, so it's one transaction. */
   async create({ username, password, role, fullName, description, email }) {
     if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
     if (!username || !username.trim()) throw new Error('Username is required');
@@ -86,23 +108,41 @@ class UserStore {
     const existing = await this.findByUsername(username);
     if (existing) throw new Error('A user with that username already exists');
 
-    const { rows } = await this.pool.query(
-      `INSERT INTO users (username, password_hash, password_simhash, role, full_name, description, email, must_change_password)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true) RETURNING *`,
-      [username.trim(), passwords.hash(password), simhash64(password), role, fullName || '', description || '', email || null]
-    );
-    const profile = toProfile(rows[0]);
+    const client = await this.pool.connect();
+    let uid;
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query('INSERT INTO users DEFAULT VALUES RETURNING uid');
+      uid = rows[0].uid;
+      await client.query('INSERT INTO usernames (uid, username) VALUES ($1, $2)', [uid, username.trim()]);
+      await client.query(
+        'INSERT INTO passwords (uid, password_hash, password_simhash, must_change_password) VALUES ($1, $2, $3, true)',
+        [uid, passwords.hash(password), simhash64(password)]
+      );
+      await client.query(
+        'INSERT INTO userdata (uid, role, full_name, description, email) VALUES ($1, $2, $3, $4, $5)',
+        [uid, role, fullName || '', description || '', email || null]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    const profile = await this.getProfile(uid);
     if (this.mailer) await this.mailer.sendAccountCreated(profile);
     return profile;
   }
 
   async setRole(uid, role) {
     if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
-    const { rows } = await this.pool.query(
-      'UPDATE users SET role = $1, updated_at = now() WHERE uid = $2 RETURNING *', [role, uid]
+    const { rowCount } = await this.pool.query(
+      'UPDATE userdata SET role = $1, updated_at = now() WHERE uid = $2', [role, uid]
     );
-    if (!rows[0]) throw new Error('No such user');
-    return toProfile(rows[0]);
+    if (!rowCount) throw new Error('No such user');
+    return this.getProfile(uid);
   }
 
   /**
@@ -132,14 +172,14 @@ class UserStore {
       );
     }
 
-    const { rows } = await this.pool.query(
-      `UPDATE users SET password_hash = $1, password_simhash = $2, must_change_password = $3, updated_at = now()
-       WHERE uid = $4 RETURNING *`,
+    await this.pool.query(
+      `UPDATE passwords SET password_hash = $1, password_simhash = $2, must_change_password = $3, updated_at = now()
+       WHERE uid = $4`,
       [passwords.hash(newPassword), simhash64(newPassword), !clearMustChange, uid]
     );
     await this.pool.query('DELETE FROM password_expiry_notices WHERE uid = $1', [uid]);
 
-    const profile = toProfile(rows[0]);
+    const profile = await this.getProfile(uid);
     if (this.mailer) await this.mailer.sendPasswordChanged(profile);
     return profile;
   }
@@ -164,7 +204,7 @@ class UserStore {
   }
 
   async touchLogin(uid) {
-    await this.pool.query('UPDATE users SET last_login = now() WHERE uid = $1', [uid]);
+    await this.pool.query('UPDATE userdata SET last_login = now() WHERE uid = $1', [uid]);
   }
 
   async update(uid, updates) {
@@ -178,39 +218,55 @@ class UserStore {
     if (patch.mustChangePassword === true) patch.cannotChangePassword = false;
     if (patch.cannotChangePassword === true) patch.mustChangePassword = false;
 
-    const editable = {
-      fullName: 'full_name', description: 'description', theme: 'theme', email: 'email',
-      disabled: 'disabled', mustChangePassword: 'must_change_password',
-      cannotChangePassword: 'cannot_change_password',
-      passwordNeverExpires: 'password_never_expires',
-      passwordExpiresAt: 'password_expires_at', avatarExt: 'avatar_ext',
+    // Split across the two tables these fields actually live in now.
+    const userdataEditable = {
+      fullName: 'full_name', description: 'description', theme: 'theme',
+      email: 'email', disabled: 'disabled', avatarExt: 'avatar_ext',
     };
-    const sets = [];
-    const values = [];
-    let i = 1;
-    for (const [key, column] of Object.entries(editable)) {
-      if (Object.prototype.hasOwnProperty.call(patch, key)) {
-        sets.push(`${column} = $${i++}`);
-        values.push(patch[key]);
-      }
+    const passwordEditable = {
+      mustChangePassword: 'must_change_password', cannotChangePassword: 'cannot_change_password',
+      passwordNeverExpires: 'password_never_expires', passwordExpiresAt: 'password_expires_at',
+    };
+
+    const userdataSets = []; const userdataValues = []; let ui = 1;
+    for (const [key, column] of Object.entries(userdataEditable)) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) { userdataSets.push(`${column} = $${ui++}`); userdataValues.push(patch[key]); }
     }
-    if (!sets.length) return this.getProfile(uid);
+    const passwordSets = []; const passwordValues = []; let pi = 1;
+    for (const [key, column] of Object.entries(passwordEditable)) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) { passwordSets.push(`${column} = $${pi++}`); passwordValues.push(patch[key]); }
+    }
+    if (!userdataSets.length && !passwordSets.length) return this.getProfile(uid);
 
     const before = await this.findByUid(uid);
     if (!before) throw new Error('No such user');
 
-    values.push(uid);
-    const { rows } = await this.pool.query(
-      `UPDATE users SET ${sets.join(', ')}, updated_at = now() WHERE uid = $${i} RETURNING *`, values
-    );
-    if (!rows[0]) throw new Error('No such user');
-    const profile = toProfile(rows[0]);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (userdataSets.length) {
+        userdataValues.push(uid);
+        await client.query(`UPDATE userdata SET ${userdataSets.join(', ')}, updated_at = now() WHERE uid = $${ui}`, userdataValues);
+      }
+      if (passwordSets.length) {
+        passwordValues.push(uid);
+        await client.query(`UPDATE passwords SET ${passwordSets.join(', ')}, updated_at = now() WHERE uid = $${pi}`, passwordValues);
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    const profile = await this.getProfile(uid);
 
     // Only an explicit flip to "must change" fires the email, not every
     // profile save — and a reset that also flips this flag has already
     // gone through resetPassword() above, which leaves nothing to flip
     // here, so this never double-fires alongside "password changed".
-    if (this.mailer && !before.must_change_password && rows[0].must_change_password) {
+    if (this.mailer && !before.must_change_password && profile.mustChangePassword) {
       await this.mailer.sendPasswordChangeRequired(profile);
     }
     return profile;
@@ -220,14 +276,15 @@ class UserStore {
     if (!newUsername || !newUsername.trim()) throw new Error('New username cannot be empty');
     const existing = await this.findByUsername(newUsername);
     if (existing && existing.uid !== uid) throw new Error('That username is already taken');
-    const { rows } = await this.pool.query(
-      'UPDATE users SET username = $1, updated_at = now() WHERE uid = $2 RETURNING *',
+    const { rowCount } = await this.pool.query(
+      'UPDATE usernames SET username = $1, updated_at = now() WHERE uid = $2',
       [newUsername.trim(), uid]
     );
-    if (!rows[0]) throw new Error('No such user');
-    return toProfile(rows[0]);
+    if (!rowCount) throw new Error('No such user');
+    return this.getProfile(uid);
   }
 
+  /** Cascades to usernames/passwords/userdata (and sessions, password_history, etc.) via their FKs to users(uid). */
   async remove(uid) {
     const { rowCount } = await this.pool.query('DELETE FROM users WHERE uid = $1', [uid]);
     if (!rowCount) throw new Error('No such user');
@@ -240,14 +297,14 @@ class UserStore {
 
   /** Guards against locking everyone out — there must always be at least one enabled sysadmin. */
   async countSysadmins() {
-    const { rows } = await this.pool.query("SELECT count(*)::int AS n FROM users WHERE role = 'systemAdministrator' AND disabled = false");
+    const { rows } = await this.pool.query("SELECT count(*)::int AS n FROM userdata WHERE role = 'systemAdministrator' AND disabled = false");
     return rows[0].n;
   }
 
   /** Enabled accounts with an actual expiry date set, for the hourly expiry sweep in server.js. */
   async listWithPasswordExpiry() {
     const { rows } = await this.pool.query(
-      `SELECT * FROM users WHERE disabled = false AND password_never_expires = false AND password_expires_at IS NOT NULL`
+      `${JOINED_SELECT} WHERE d.disabled = false AND p.password_never_expires = false AND p.password_expires_at IS NOT NULL`
     );
     return rows;
   }

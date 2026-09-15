@@ -104,6 +104,29 @@ data (per-app permissions, custom flags, whatever) keyed by `uid`, not
 `username`. Usernames can be renamed by anyone with the `manageUsers`
 capability; `uid` never changes.
 
+### Data model
+
+An "account" is really four tables, not one: `users` is a minimal
+identity anchor (`uid`, `created_at`) — the thing every other table's
+foreign key actually points to — with `usernames`, `passwords`, and
+`userdata` each holding one focused slice, one row per `uid`:
+
+| table | holds |
+|---|---|
+| `users` | `uid` (the stable identity), `created_at` |
+| `usernames` | `username` |
+| `passwords` | `password_hash`, `password_simhash`, `mustChangePassword`, `cannotChangePassword`, `passwordNeverExpires`, `passwordExpiresAt` |
+| `userdata` | `role`, `fullName`, `description`, `email`, `disabled`, `theme`, `avatarExt`, `lastLogin` |
+
+This is purely internal: `src/models/userStore.js` joins all four back
+into the single shape shown above before anything else in the codebase
+ever sees a "user," so no route, the CLI, or an app calling `/api/v1/*`
+can tell the difference. It exists so a future account that doesn't have
+a GAM password at all — one that only ever authenticates via an external
+IdP — doesn't need a dummy row in a table full of password columns, and
+so credentials, identity, and profile data can eventually carry different
+access rules without restructuring everything else.
+
 ## Ranks
 
 Global, not per-app. Every user has exactly one rank, and a rank is a
@@ -215,8 +238,8 @@ of the user's last two (now-retired) passwords. A password can't be
 un-hashed to compare it letter-by-letter against a new one, so this
 needs something bcrypt can't give us: alongside the bcrypt hash, GAM
 stores a 64-bit **SimHash** of the password's character-frequency
-histogram (`password_simhash` on `users`, and in `password_history` for
-the two most recently retired passwords) — computed once, at set-time,
+histogram (`password_simhash` on `passwords`, and in `password_history`
+for the two most recently retired passwords) — computed once, at set-time,
 while the plaintext is still in memory, and never reversible back to the
 original password. It's deliberately based on which characters (and how
 many of each) appear rather than their order or position, so that e.g.
