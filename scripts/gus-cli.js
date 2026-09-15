@@ -19,6 +19,10 @@ const { SessionStore } = require('../src/models/sessionStore');
 const { FailedLoginStore } = require('../src/models/failedLoginStore');
 const { ActivityLog } = require('../src/models/activityLog');
 const { SiteSettingsStore } = require('../src/models/siteSettingsStore');
+const { PasswordPolicyStore } = require('../src/models/passwordPolicyStore');
+const { RULE_TYPES } = require('../src/utils/passwordPolicy');
+const { EmailSettingsStore } = require('../src/models/emailSettingsStore');
+const { Mailer } = require('../src/utils/mailer');
 
 function parseArgs(argv) {
   const positional = [];
@@ -60,13 +64,17 @@ GAM admin CLI — operates directly on the database, no login required.
 USERS
   users list
   users show <username>
-  users create <username> <role> [--password P] [--full-name N] [--description D]
+  users create <username> <role> [--password P] [--full-name N] [--description D] [--email E]
   users set-role <username> <role>   (see 'ranks list' for valid role names)
+  users set-email <username> <email>
   users reset-password <username> [--password P] [--keep-must-change]
   users disable <username>
   users enable <username>
   users rename <username> <newUsername>
   users delete <username>
+
+  Password requirements (below) and history checks are enforced only on
+  self-service changes — a password set here, from the console, is exempt.
 
 RANKS
   ranks list
@@ -98,6 +106,18 @@ BRANDING
   branding set-name <name>
   branding remove-logo
 
+PASSWORD POLICY
+  password-policy list
+  password-policy create <type> <label> [--params '{"...json..."}']   (types: ${Object.keys(RULE_TYPES).join(', ')})
+  password-policy set-enabled <id> <on|off>
+  password-policy delete <id>
+
+EMAIL (SMTP)
+  email show
+  email set-smtp [--host H] [--port P] [--secure true|false] [--username U] [--password P] [--from-address A] [--from-name N]
+  email enable | disable
+  email send-test <address>
+
 LOGIN ATTEMPTS
   reset-attempts <username>     Clear a lockout for one username
   reset-attempts --all          Clear every recorded attempt for everyone
@@ -115,12 +135,15 @@ async function main() {
   const config = loadConfig();
   const pool = initPool(config.database);
   const rankStore = new RankStore(pool);
-  const userStore = new UserStore(pool, rankStore);
+  const emailSettingsStore = new EmailSettingsStore(pool, config.server.sessionSecret);
+  const mailer = new Mailer(emailSettingsStore);
+  const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
   const sessionStore = new SessionStore(pool, config.session);
   const failedLoginStore = new FailedLoginStore(pool, config.rateLimit.login);
   const activityLog = new ActivityLog(pool);
   const siteSettingsStore = new SiteSettingsStore(pool);
+  const passwordPolicyStore = new PasswordPolicyStore(pool);
 
   async function requireUser(username) {
     const user = await userStore.findByUsername(username);
@@ -163,13 +186,21 @@ async function main() {
       console.log(JSON.stringify(await userStore.getProfile(user.uid), null, 2));
     } else if (sub === 'create') {
       const [username, role] = positional;
-      if (!username || !role) { console.error('Usage: users create <username> <role> [--password P] [--full-name N] [--description D]'); process.exit(1); }
+      if (!username || !role) { console.error('Usage: users create <username> <role> [--password P] [--full-name N] [--description D] [--email E]'); process.exit(1); }
       if (!(await rankStore.exists(role))) { console.error(`No such rank "${role}". Run "ranks list" to see valid roles.`); process.exit(1); }
       const password = flags.password || genPassword();
-      const profile = await userStore.create({ username, password, role, fullName: flags['full-name'] || '', description: flags.description || '' });
+      // Password requirements are enforced only on self-service changes
+      // (see src/utils/enforcePasswordPolicy.js) — a temp password set
+      // here, from the console, is exempt by design.
+      const profile = await userStore.create({ username, password, role, fullName: flags['full-name'] || '', description: flags.description || '', email: flags.email || '' });
       console.log(`Created "${profile.username}" (${profile.role}).`);
       if (!flags.password) console.log(`Temporary password: ${password}`);
       console.log('Forced to change password on first login.');
+    } else if (sub === 'set-email') {
+      const [username, email] = positional;
+      const user = await requireUser(username);
+      const profile = await userStore.update(user.uid, { email: email || null });
+      console.log(`"${profile.username}"'s email is now ${profile.email || '(cleared)'}.`);
     } else if (sub === 'set-role') {
       const [username, role] = positional;
       const user = await requireUser(username);
@@ -356,6 +387,64 @@ async function main() {
       console.log('Logo cleared (falls back to the default GAM mark). Note: this only clears the database field — delete the file under data/branding/ yourself if you want it fully gone.');
     } else {
       console.error('Unknown branding subcommand. See --help.'); process.exit(1);
+    }
+    return pool.end();
+  }
+
+  if (cmd === 'password-policy') {
+    const { positional, flags } = parseArgs(rest);
+    if (sub === 'list') {
+      table(await passwordPolicyStore.list(), [
+        { label: 'ID', get: (r) => r.id },
+        { label: 'TYPE', get: (r) => r.type },
+        { label: 'LABEL', get: (r) => r.label },
+        { label: 'ENABLED', get: (r) => r.enabled ? 'yes' : 'no' },
+        { label: 'PARAMS', get: (r) => JSON.stringify(r.params) },
+      ]);
+    } else if (sub === 'create') {
+      const [type, label] = positional;
+      if (!type || !label) { console.error(`Usage: password-policy create <type> <label> [--params '{"...json..."}']  (types: ${Object.keys(RULE_TYPES).join(', ')})`); process.exit(1); }
+      let params = {};
+      if (flags.params) { try { params = JSON.parse(flags.params); } catch (e) { console.error('--params must be valid JSON.'); process.exit(1); } }
+      const rule = await passwordPolicyStore.create({ type, label, params });
+      console.log(`Created rule "${rule.label}" (${rule.id}).`);
+    } else if (sub === 'set-enabled') {
+      const [id, onOff] = positional;
+      if (!id || !['on', 'off'].includes(onOff)) { console.error('Usage: password-policy set-enabled <id> <on|off>'); process.exit(1); }
+      const rule = await passwordPolicyStore.update(id, { enabled: onOff === 'on' });
+      console.log(`"${rule.label}" is now ${onOff}.`);
+    } else if (sub === 'delete') {
+      await passwordPolicyStore.remove(positional[0]);
+      console.log('Rule deleted.');
+    } else {
+      console.error('Unknown password-policy subcommand. See --help.'); process.exit(1);
+    }
+    return pool.end();
+  }
+
+  if (cmd === 'email') {
+    const { positional, flags } = parseArgs(rest);
+    if (sub === 'show') {
+      console.log(JSON.stringify(await emailSettingsStore.get(), null, 2));
+    } else if (sub === 'set-smtp') {
+      const settings = await emailSettingsStore.update({
+        host: flags.host, port: flags.port, secure: flags.secure !== undefined ? flags.secure !== 'false' : undefined,
+        username: flags.username, password: flags.password, fromAddress: flags['from-address'], fromName: flags['from-name'],
+      });
+      console.log('SMTP settings updated:', JSON.stringify(settings, null, 2));
+    } else if (sub === 'enable') {
+      await emailSettingsStore.update({ enabled: true });
+      console.log('Email sending enabled.');
+    } else if (sub === 'disable') {
+      await emailSettingsStore.update({ enabled: false });
+      console.log('Email sending disabled.');
+    } else if (sub === 'send-test') {
+      const to = positional[0];
+      if (!to) { console.error('Usage: email send-test <address>'); process.exit(1); }
+      const result = await mailer.sendMail({ to, subject: 'GAM test email', html: '<p>This is a test email from the GAM CLI.</p>' });
+      console.log(result.sent ? `Sent to ${to}.` : `Not sent: ${result.reason}`);
+    } else {
+      console.error('Unknown email subcommand. See --help.'); process.exit(1);
     }
     return pool.end();
   }

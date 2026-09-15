@@ -23,9 +23,9 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
 
   router.post('/users', express.json(), async (req, res) => {
     try {
-      const { username, password, role, fullName, description } = req.body || {};
+      const { username, password, role, fullName, description, email } = req.body || {};
       if (!(await rankStore.exists(role))) throw new Error('Invalid role');
-      const profile = await userStore.create({ username, password, role, fullName, description });
+      const profile = await userStore.create({ username, password, role, fullName, description, email });
       await activityLog.add('admin', `${actorName(req)} created user "${profile.username}" (${profile.role})`, actor(req), actorName(req));
       res.json({ ok: true, profile });
     } catch (err) {
@@ -68,7 +68,7 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
       }
 
       const rest = {};
-      ['fullName', 'description', 'theme', 'disabled', 'mustChangePassword', 'cannotChangePassword', 'passwordNeverExpires', 'passwordExpiresAt'].forEach((k) => {
+      ['fullName', 'description', 'email', 'theme', 'disabled', 'mustChangePassword', 'cannotChangePassword', 'passwordNeverExpires', 'passwordExpiresAt'].forEach((k) => {
         if (Object.prototype.hasOwnProperty.call(body, k)) rest[k] = body[k];
       });
       if (Object.keys(rest).length) await userStore.update(req.params.uid, rest);

@@ -12,6 +12,11 @@ const { SessionStore } = require('./models/sessionStore');
 const { FailedLoginStore } = require('./models/failedLoginStore');
 const { ActivityLog } = require('./models/activityLog');
 const { SiteSettingsStore } = require('./models/siteSettingsStore');
+const { PasswordPolicyStore } = require('./models/passwordPolicyStore');
+const { EmailSettingsStore } = require('./models/emailSettingsStore');
+const { KnownLoginStore } = require('./models/knownLoginStore');
+const { Mailer } = require('./utils/mailer');
+const { runPasswordExpirySweep } = require('./jobs/passwordExpirySweep');
 
 const { requireApp } = require('./middleware/appAuth');
 const { perAppRateLimit } = require('./middleware/rateLimit');
@@ -25,23 +30,37 @@ const ranksRoutes = require('./routes/ranks');
 const appsRoutes = require('./routes/apps');
 const activityRoutes = require('./routes/activity');
 const brandingRoutes = require('./routes/branding');
+const passwordPolicyRoutes = require('./routes/passwordPolicy');
+const emailRoutes = require('./routes/email');
+
+const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 async function main() {
   const config = loadConfig();
   const pool = initPool(config.database);
 
   const rankStore = new RankStore(pool);
-  const userStore = new UserStore(pool, rankStore);
+  const emailSettingsStore = new EmailSettingsStore(pool, config.server.sessionSecret);
+  const mailer = new Mailer(emailSettingsStore);
+  const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
   const sessionStore = new SessionStore(pool, config.session);
   const failedLoginStore = new FailedLoginStore(pool, config.rateLimit.login);
   const activityLog = new ActivityLog(pool);
   const siteSettingsStore = new SiteSettingsStore(pool);
+  const passwordPolicyStore = new PasswordPolicyStore(pool);
+  const knownLoginStore = new KnownLoginStore(pool);
 
   if (await userStore.isEmpty()) {
     console.warn('\n⚠  No users exist yet in the GAM database.');
     console.warn('   Run: npm run bootstrap\n');
   }
+
+  // Password expiry is time passing, not an action anyone takes, so it's
+  // swept on an interval rather than triggered — see jobs/passwordExpirySweep.js.
+  const runSweep = () => runPasswordExpirySweep({ userStore, mailer }).catch((err) => console.error('Password expiry sweep failed:', err.message));
+  runSweep();
+  setInterval(runSweep, EXPIRY_SWEEP_INTERVAL_MS);
 
   const app = express();
   app.set('trust proxy', 1);
@@ -62,7 +81,7 @@ async function main() {
     '/api/v1',
     requireApp(appStore),
     perAppRateLimit(config.rateLimit.perApp),
-    apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog })
+    apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer })
   );
 
   /* =========================================================
@@ -73,14 +92,16 @@ async function main() {
    * routes/branding.js.
    * ========================================================= */
   app.use('/api', brandingRoutes({ config, rankStore, siteSettingsStore, activityLog }));
-  app.use('/api', sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog }));
+  app.use('/api', sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog, knownLoginStore, mailer }));
   app.use('/api', requireAuth);
   app.use('/api', requireGoodStanding(userStore));
-  app.use('/api', accountRoutes({ config, userStore, sessionStore, activityLog }));
+  app.use('/api', accountRoutes({ config, userStore, passwordPolicyStore, sessionStore, activityLog }));
   app.use('/api', requireCapability(rankStore, 'manageUsers'), usersRoutes({ userStore, rankStore, sessionStore, activityLog }));
   app.use('/api', ranksRoutes({ rankStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, caps) }));
   app.use('/api', requireCapability(rankStore, 'manageApps'), appsRoutes({ appStore, userStore, activityLog }));
   app.use('/api', requireCapability(rankStore, 'viewActivity'), activityRoutes({ activityLog, failedLoginStore }));
+  app.use('/api', requireCapability(rankStore, 'managePasswordPolicy'), passwordPolicyRoutes({ passwordPolicyStore, activityLog }));
+  app.use('/api', requireCapability(rankStore, 'manageEmail'), emailRoutes({ emailSettingsStore, mailer, userStore, activityLog }));
 
   app.use('/avatars', express.static(config.avatars.directory));
   app.use('/branding', express.static(`${config.avatars.directory}/../branding`));

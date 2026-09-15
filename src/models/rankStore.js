@@ -3,7 +3,7 @@
 // Every capability a rank can be granted. Adding a new one later is just
 // adding a key here, a column in migrations, and a route-level
 // requireCapability() check — nothing else has to change to support it.
-const CAPABILITIES = ['manageUsers', 'manageRanks', 'manageApps', 'viewActivity', 'manageBranding'];
+const CAPABILITIES = ['manageUsers', 'manageRanks', 'manageApps', 'viewActivity', 'manageBranding', 'managePasswordPolicy', 'manageEmail'];
 
 const CAPABILITY_COLUMNS = {
   manageUsers: 'manage_users',
@@ -11,6 +11,8 @@ const CAPABILITY_COLUMNS = {
   manageApps: 'manage_apps',
   viewActivity: 'view_activity',
   manageBranding: 'manage_branding',
+  managePasswordPolicy: 'manage_password_policy',
+  manageEmail: 'manage_email',
 };
 
 // These two ranks are hardcoded rather than trusted from the database

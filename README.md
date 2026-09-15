@@ -82,6 +82,7 @@ password change — that's the whole point of "forced."
   "uid": "uuid",
   "username": "adrian",
   "role": "systemAdministrator",
+  "email": null,
   "fullName": "",
   "description": "",
   "disabled": false,
@@ -138,6 +139,8 @@ from the CLI.
 | `manageApps` | Apps tab — register/regenerate/disable/delete apps, set an app's auth method, block/unblock a user's access to one app |
 | `viewActivity` | Activity tab — the audit log and CSV export |
 | `manageBranding` | Settings tab — site name and logo |
+| `managePasswordPolicy` | Password Policy tab — add/edit/enable/disable the rules new self-service passwords must meet |
+| `manageEmail` | Email tab — SMTP server settings and sending a test email |
 
 Reading the rank list (`GET /api/ranks`, used to populate the role picker
 in the Users tab) only needs `manageUsers` OR `manageRanks`; creating,
@@ -175,6 +178,79 @@ an app registered under any other method always gets `bad` back from it
 a hint about whether the account needs a forced password change), since
 that app isn't supposed to be calling this endpoint at all.
 
+## Password policy
+
+Every self-service password change — the forced first-login change and a
+voluntary later one, via either `PUT /api/account/password` or `/api/v1/
+change-password` — is checked against two things before it's accepted.
+**Neither check runs for a password an admin sets for someone else**,
+whether through the Users tab, `PATCH /api/users/:uid`, or the CLI's
+`users create` / `users reset-password` — those are always temporary,
+and the account holder is forced to replace them on next login anyway.
+
+**1. Configurable rules.** `password_policy_rules` holds rule *instances*
+— a type, a label, enabled/disabled, and a JSON `params` blob — evaluated
+by `src/utils/passwordPolicy.js`. The defaults:
+
+| label | type | params |
+|---|---|---|
+| No years | `noYears` | `{minYear: 1900, maxYear: 2099}` — rejects any 4-digit run in that range |
+| 2 symbols minimum | `minCount` | `{charset: "symbols", min: 2}` |
+| 3 numbers minimum | `minCount` | `{charset: "numbers", min: 3}` |
+| 5 letters minimum | `minCount` | `{charset: "letters", min: 5}` |
+| 1 uppercase letter | `minCount` | `{charset: "uppercase", min: 1}` |
+| No spaces | `noSpaces` | `{}` |
+| Not 70% similar to "password" | `notSimilarTo` | `{values: ["password"], threshold: 0.7}` |
+
+A sysadmin (`managePasswordPolicy`) can enable/disable, edit params, or
+add new *instances* of these types from the Password Policy tab, `/api/
+password-policy`, or the CLI's `password-policy` command group — no code
+change needed. Adding a genuinely new rule *type* (something `minCount`/
+`noYears`/`noSpaces`/`notSimilarTo` can't express) means adding one entry
+to the `RULE_TYPES` registry in `src/utils/passwordPolicy.js`; every
+existing rule instance, the admin UI, and the CLI pick it up automatically.
+
+**2. Password history.** A new password can't be ≥70% similar to either
+of the user's last two (now-retired) passwords. A password can't be
+un-hashed to compare it letter-by-letter against a new one, so this
+needs something bcrypt can't give us: alongside the bcrypt hash, GAM
+stores a 64-bit **SimHash** of the password's character-frequency
+histogram (`password_simhash` on `users`, and in `password_history` for
+the two most recently retired passwords) — computed once, at set-time,
+while the plaintext is still in memory, and never reversible back to the
+original password. It's deliberately based on which characters (and how
+many of each) appear rather than their order or position, so that e.g.
+`GoRams753%!` and `RamsGo766!%` — same letters and symbols rearranged,
+only the digits different — read as similar even though they share no
+long substring. This is inherently an estimate on short strings, not a
+certainty: treat a rejection as "please pick something more different,"
+not a security guarantee, and see the comment above `simhash64()` for
+the reasoning.
+
+## Email notifications
+
+GAM can send account-lifecycle emails via SMTP, configured at
+`/api/email-settings` (Email tab, `manageEmail`) or `email set-smtp` /
+`email enable` in the CLI. The SMTP password is encrypted at rest
+(AES-256-GCM, keyed from `server.sessionSecret` — see
+`src/utils/secretBox.js`) and only ever decrypted in memory to actually
+send mail; it's never returned by any read endpoint. Sending is a
+no-op (never an error toward the caller) whenever email is disabled,
+unconfigured, or the recipient has no address on file — a login or
+password change never fails because notification mail couldn't go out.
+
+| email | sent when |
+|---|---|
+| Account created | a new user is created (`userStore.create`, any interface) |
+| Password change required | an admin flips `mustChangePassword` on an *existing* account (not at creation — that gets "Account created" instead) |
+| Password changed | any time a password is actually changed, self-service or admin/CLI |
+| Password expired | the hourly sweep (`src/jobs/passwordExpirySweep.js`) finds an account past `passwordExpiresAt` |
+| Password expiry soon! | the same sweep, once a password is within 7 days of expiring |
+| Unknown logon point | a successful login from an IP GAM hasn't seen for that account before — tracked in `known_logins`; a brand-new account's very first login is never flagged, since there's nothing yet to compare it to |
+
+Add an email address to an account from the Users tab, `PATCH /api/
+users/:uid`, or `users set-email <username> <email>` in the CLI.
+
 ## Admin-panel features (GAM's own frontend)
 
 - **Dashboard** — quick stats and a recent-activity feed, each tailored
@@ -196,6 +272,10 @@ that app isn't supposed to be calling this endpoint at all.
   denormalized on each entry, so it survives that account later being
   deleted — only the `actor_uid` foreign key goes null. Requires
   `viewActivity`.
+- **Password Policy** — see [Password policy](#password-policy) above.
+  Requires `managePasswordPolicy`.
+- **Email** — SMTP settings and a test-send button; see
+  [Email notifications](#email-notifications) above. Requires `manageEmail`.
 - **Settings** — site name and logo shown on the login screen and header,
   stored in the database (not `config.yml`) so it takes effect without a
   restart. Requires `manageBranding`.
@@ -214,8 +294,8 @@ node scripts/gus-cli.js --help
 ```
 
 ```
-users list | show <username> | create <username> <role> [--password P] [--full-name N] [--description D]
-users set-role <username> <role> | reset-password <username> [--password P] [--keep-must-change]
+users list | show <username> | create <username> <role> [--password P] [--full-name N] [--description D] [--email E]
+users set-role <username> <role> | set-email <username> <email> | reset-password <username> [--password P] [--keep-must-change]
 users disable/enable <username> | rename <username> <new> | delete <username>
 
 ranks list | create <name> <label> [--<capability> ...] | set-capability <name> <capability> <on|off> | delete <name>
@@ -230,9 +310,19 @@ activity export <file.csv> [--category C] [--actor A] [--from ISO] [--to ISO]
 
 branding show | set-name <name> | remove-logo
 
+password-policy list | create <type> <label> [--params '{...}'] | set-enabled <id> <on|off> | delete <id>
+
+email show | set-smtp [--host H] [--port P] [--secure true|false] [--username U] [--password P] [--from-address A] [--from-name N]
+email enable | disable | send-test <address>
+
 reset-attempts <username>     # clear a login lockout for one account
 reset-attempts --all          # clear every recorded attempt for everyone
 ```
+
+Password requirements and history checks (see
+[Password policy](#password-policy)) are enforced only on self-service
+changes — `users create` / `users reset-password` bypass them entirely,
+same as an admin reset through the web UI.
 
 Passwords left out of `create`/`reset-password` are generated randomly
 and printed once. Every account is forced to change its password on
@@ -251,6 +341,20 @@ first login after either — no flag turns that off.
   vice versa.
 - Per-app request-rate limiting protects the service from one
   misbehaving/compromised app hammering it.
+- The password-history similarity check (see [Password policy](#password-policy))
+  is the one deliberate exception to "passwords are never recoverable":
+  `password_simhash` stores a lossy fuzzy fingerprint of each password's
+  character histogram — not reversible to the original password, but
+  more information than a cryptographic hash reveals. That tradeoff is
+  the unavoidable cost of the "70% similar to your last two passwords"
+  feature; there is no way to detect near-duplicate passwords from
+  one-way hashes alone.
+- The one credential GAM does store reversibly is the SMTP password
+  (`email_settings.encrypted_password`), because sending mail requires
+  authenticating with it again on every send. It's encrypted (AES-256-GCM,
+  keyed from `server.sessionSecret`), not plaintext, and never returned
+  by any API response — but unlike a user's password or an app secret,
+  someone with both database and `sessionSecret` access could recover it.
 
 
 Note to developers and testers:

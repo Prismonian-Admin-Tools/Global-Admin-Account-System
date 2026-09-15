@@ -7,12 +7,12 @@ function clientIp(req) {
 }
 
 /**
- * Login for the GUS's OWN frontend (a person visiting auth.prismonian.com
+ * Login for GAM's OWN frontend (a person visiting auth.prismonian.com
  * directly, not an app calling the API). Cookie-based, like the old
  * panel — this is intentionally a completely separate mechanism from the
  * opaque app tokens issued via /api/v1/login.
  */
-module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog }) {
+module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog, knownLoginStore, mailer }) {
   const router = express.Router();
 
   async function withCapabilities(profile) {
@@ -42,7 +42,13 @@ module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore
 
     req.session.user = { uid: result.user.uid, username: result.user.username, role: result.user.role };
     await userStore.touchLogin(result.user.uid);
-    await activityLog.add('auth', `${result.user.username} signed in to GUS`, result.user.uid, result.user.username);
+    await activityLog.add('auth', `${result.user.username} signed in to GAM`, result.user.uid, result.user.username);
+
+    const isUnknownLogonPoint = await knownLoginStore.recordAndCheckUnknown(result.user.uid, ip);
+    if (isUnknownLogonPoint) {
+      await mailer.sendUnknownLogon(toProfile(result.user), { ip, appName: 'GAM' });
+      await activityLog.add('auth', `${result.user.username} signed in to GAM from a new address`, result.user.uid, result.user.username);
+    }
 
     res.json({ ok: true, profile: await withCapabilities(toProfile(result.user)), requirePasswordChange: result.status === 'good_change_pw' });
   });

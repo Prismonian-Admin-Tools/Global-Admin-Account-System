@@ -213,6 +213,8 @@ const ICONS = {
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.9 7.9 0 000-2l2-1.5-2-3.5-2.4.5a8 8 0 00-1.7-1L15 3h-6l-.3 2.5a8 8 0 00-1.7 1l-2.4-.5-2 3.5L4.6 11a7.9 7.9 0 000 2l-2 1.5 2 3.5 2.4-.5a8 8 0 001.7 1L9 21h6l.3-2.5a8 8 0 001.7-1l2.4.5 2-3.5-2-1.5z"/></svg>',
   ranks: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6l7-3z"/></svg>',
+  email: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+  policy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>',
   monitor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
@@ -382,6 +384,8 @@ function render() {
   if (caps.manageRanks) tabs.push(['ranks', 'Ranks', 'ranks']);
   if (caps.manageApps) tabs.push(['apps', 'Apps', 'apps']);
   if (caps.viewActivity) tabs.push(['activity', 'Activity', 'activity']);
+  if (caps.managePasswordPolicy) tabs.push(['passwordPolicy', 'Password Policy', 'policy']);
+  if (caps.manageEmail) tabs.push(['email', 'Email', 'email']);
   if (caps.manageBranding) tabs.push(['settings', 'Settings', 'settings']);
 
   const navEl = el('nav', {}, [
@@ -413,6 +417,8 @@ function render() {
   if (state.view === 'ranks') renderRanks(content);
   if (state.view === 'apps') renderApps(content);
   if (state.view === 'activity') renderActivity(content);
+  if (state.view === 'passwordPolicy') renderPasswordPolicy(content);
+  if (state.view === 'email') renderEmailSettings(content);
   if (state.view === 'settings') renderSettings(content);
 }
 
@@ -928,6 +934,7 @@ function openCreateUserModal() {
   const password = el('input', { type: 'password', placeholder: 'temporary password' });
   const confirmPw = el('input', { type: 'password', placeholder: 'confirm temporary password' });
   const fullName = el('input', { type: 'text', placeholder: 'optional' });
+  const email = el('input', { type: 'email', placeholder: 'optional — used for account notifications' });
   const role = el('select', {}, state.ranks.map((r) => el('option', { value: r.name, text: r.label, selected: r.name === 'staff' ? 'selected' : null })));
   const errEl = el('div', { class: 'err' });
 
@@ -945,7 +952,7 @@ function openCreateUserModal() {
     errEl.textContent = '';
     if (password.value !== confirmPw.value) { errEl.textContent = 'Passwords do not match.'; return; }
     try {
-      await api('/users', { method: 'POST', body: { username: username.value, password: password.value, role: role.value, fullName: fullName.value } });
+      await api('/users', { method: 'POST', body: { username: username.value, password: password.value, role: role.value, fullName: fullName.value, email: email.value } });
       closeModal();
       toast('User created — they will be required to change their password on first login', 'ok');
       renderUsers(document.getElementById('content'));
@@ -956,6 +963,7 @@ function openCreateUserModal() {
     el('h3', {}, [icon('users'), el('span', { text: 'New user' })]),
     el('label', { text: 'Username' }), username,
     el('label', { text: 'Full name (optional)' }), fullName,
+    el('label', { text: 'Email (optional)' }), email,
     el('label', { text: 'Temporary password' }), el('div', { style: 'display:flex;gap:8px' }, [password, el('button', { class: 'btn-ghost btn-sm', text: 'Generate', onclick: genPassword })]),
     el('label', { text: 'Confirm temporary password' }), confirmPw,
     el('div', { class: 'hint', text: 'At least 8 characters. They\u2019ll be forced to change it on first login, no matter what.' }),
@@ -973,6 +981,7 @@ function openCreateUserModal() {
 function openManageUserModal(u) {
   const role = el('select', {}, state.ranks.map((r) => el('option', { value: r.name, text: r.label, selected: r.name === u.role ? 'selected' : null })));
   const fullName = el('input', { type: 'text', value: u.fullName || '' });
+  const email = el('input', { type: 'email', value: u.email || '', placeholder: 'used for account notifications' });
   const description = el('textarea', { rows: '2' }); description.value = u.description || '';
   const disabled = el('input', { type: 'checkbox' }); disabled.checked = u.disabled;
 
@@ -998,7 +1007,7 @@ function openManageUserModal(u) {
     }
     try {
       const body = {
-        role: role.value, disabled: disabled.checked, fullName: fullName.value, description: description.value,
+        role: role.value, disabled: disabled.checked, fullName: fullName.value, email: email.value, description: description.value,
         mustChangePassword: mustChange.checked, cannotChangePassword: cannotChange.checked,
         passwordNeverExpires: neverExpires.checked,
         passwordExpiresAt: neverExpires.checked ? null : (expiresAt.value ? new Date(expiresAt.value).toISOString() : null),
@@ -1026,6 +1035,7 @@ function openManageUserModal(u) {
       el('div', {}, [el('label', { text: 'Full name' }), fullName]),
       el('div', {}, [el('label', { text: 'Role' }), role]),
     ]),
+    el('label', { text: 'Email' }), email,
     el('label', { text: 'Description' }), description,
     el('div', { class: 'checkline' }, [disabled, el('span', { text: 'Account disabled' })]),
 
@@ -1318,6 +1328,150 @@ async function renderActivity(content) {
           el('td', {}, [el('span', { class: 'badge ' + (f.reason === 'disabled' ? 'disabled' : 'warn'), text: f.reason || '\u2014' })]),
         ]))),
       ]),
+    ]),
+  ]));
+}
+
+/* ---------------- password policy tab (managePasswordPolicy capability) ---------------- */
+async function renderPasswordPolicy(content) {
+  const { rules, ruleTypes } = await api('/password-policy');
+  content.innerHTML = '';
+
+  const table = el('table', {}, [
+    el('thead', {}, [el('tr', {}, ['Rule', 'Type', 'Params', 'Enabled', ''].map((h) => el('th', { text: h })))]),
+    el('tbody', {}, rules.map((r) => policyRuleRow(r))),
+  ]);
+
+  content.appendChild(el('div', {}, [
+    el('h2', {}, [icon('policy'), el('span', { text: 'Password Policy' })]),
+    el('div', { class: 'pagesub', text: 'Rules a new self-service password must satisfy. Bypassed entirely when a password is set from the console or by an admin resetting someone else’s account.' }),
+    el('div', { class: 'toolbar' }, [
+      el('div'),
+      el('button', { class: 'btn-primary', text: '+ New rule', onclick: () => openPolicyRuleModal(null, ruleTypes) }),
+    ]),
+    table,
+  ]));
+}
+
+function policyRuleRow(r) {
+  const toggle = el('button', { class: 'btn-ghost btn-sm', text: r.enabled ? 'Disable' : 'Enable', onclick: async () => {
+    try { await api('/password-policy/' + r.id, { method: 'PATCH', body: { enabled: !r.enabled } }); renderPasswordPolicy(document.getElementById('content')); }
+    catch (e) { toast(e.message, 'err'); }
+  } });
+  const editBtn = el('button', { class: 'btn-ghost btn-sm', text: 'Edit', onclick: () => openPolicyRuleModal(r, null) });
+  const deleteBtn = el('button', { class: 'btn-danger btn-sm', text: 'Delete', onclick: async () => {
+    if (!confirm(`Delete the "${r.label}" rule?`)) return;
+    try { await api('/password-policy/' + r.id, { method: 'DELETE' }); renderPasswordPolicy(document.getElementById('content')); }
+    catch (e) { toast(e.message, 'err'); }
+  } });
+  return el('tr', {}, [
+    el('td', { text: r.label }),
+    el('td', {}, [el('span', { class: 'badge', style: 'font-family:var(--mono)', text: r.type })]),
+    el('td', { style: 'font-family:var(--mono);font-size:11px', text: JSON.stringify(r.params) }),
+    el('td', {}, [el('span', { class: 'badge ' + (r.enabled ? 'ok' : 'disabled'), text: r.enabled ? 'enabled' : 'disabled' })]),
+    el('td', { class: 'row-actions' }, [toggle, editBtn, deleteBtn]),
+  ]);
+}
+
+/** New rules are created from a chosen TYPE (see src/utils/passwordPolicy.js) with a JSON params blob — kept as raw JSON here rather than one bespoke form per type, since the whole point is that new types shouldn't need new UI. */
+function openPolicyRuleModal(rule, ruleTypes) {
+  const isNew = !rule;
+  const type = isNew
+    ? el('select', {}, ruleTypes.map((t) => el('option', { value: t, text: t })))
+    : el('input', { type: 'text', value: rule.type, disabled: 'disabled' });
+  const label = el('input', { type: 'text', value: rule ? rule.label : '', placeholder: 'e.g. 2 symbols minimum' });
+  const params = el('textarea', { rows: '4', style: 'font-family:var(--mono);font-size:12px' });
+  params.value = JSON.stringify(rule ? rule.params : {}, null, 2);
+  const errEl = el('div', { class: 'err' });
+
+  async function submit() {
+    errEl.textContent = '';
+    let parsedParams;
+    try { parsedParams = JSON.parse(params.value || '{}'); } catch (e) { errEl.textContent = 'Params must be valid JSON.'; return; }
+    try {
+      if (isNew) {
+        await api('/password-policy', { method: 'POST', body: { type: type.value, label: label.value, params: parsedParams } });
+        toast('Rule created', 'ok');
+      } else {
+        await api('/password-policy/' + rule.id, { method: 'PATCH', body: { label: label.value, params: parsedParams } });
+        toast('Rule updated', 'ok');
+      }
+      closeModal();
+      renderPasswordPolicy(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  openModal([
+    el('h3', {}, [icon('policy'), el('span', { text: isNew ? 'New password rule' : 'Edit password rule' })]),
+    el('label', { text: 'Type' }), type,
+    el('label', { text: 'Label (shown to users when this rule fails)' }), label,
+    el('label', { text: 'Params (JSON)' }), params,
+    errEl,
+    el('div', { class: 'modal-actions' }, [
+      el('div', { class: 'right' }, [
+        el('button', { class: 'btn-ghost', text: 'Cancel', onclick: closeModal }),
+        el('button', { class: 'btn-primary', text: isNew ? 'Create' : 'Save', onclick: submit }),
+      ]),
+    ]),
+  ]);
+}
+
+/* ---------------- email / SMTP tab (manageEmail capability) ---------------- */
+async function renderEmailSettings(content) {
+  const settings = await api('/email-settings');
+  content.innerHTML = '';
+
+  const enabled = el('input', { type: 'checkbox' }); enabled.checked = settings.enabled;
+  const host = el('input', { type: 'text', value: settings.host || '', placeholder: 'smtp.example.com' });
+  const port = el('input', { type: 'number', value: settings.port || 587 });
+  const secure = el('input', { type: 'checkbox' }); secure.checked = settings.secure;
+  const username = el('input', { type: 'text', value: settings.username || '' });
+  const password = el('input', { type: 'password', placeholder: settings.hasPassword ? '•••••••• (unchanged)' : 'SMTP password' });
+  const fromAddress = el('input', { type: 'text', value: settings.fromAddress || '', placeholder: 'noreply@example.com' });
+  const fromName = el('input', { type: 'text', value: settings.fromName || 'GAM' });
+  const errEl = el('div', { class: 'err' });
+
+  async function save() {
+    errEl.textContent = '';
+    try {
+      const body = { enabled: enabled.checked, host: host.value, port: port.value, secure: secure.checked, username: username.value, fromAddress: fromAddress.value, fromName: fromName.value };
+      if (password.value) body.password = password.value;
+      await api('/email-settings', { method: 'PUT', body });
+      toast('Email settings saved', 'ok');
+      renderEmailSettings(content);
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  const testTo = el('input', { type: 'text', placeholder: 'you@example.com (optional — defaults to your own account email)' });
+  async function sendTest() {
+    try {
+      await api('/email-settings/test', { method: 'POST', body: { to: testTo.value || undefined } });
+      toast('Test email sent', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  content.appendChild(el('div', {}, [
+    el('h2', {}, [icon('email'), el('span', { text: 'Email' })]),
+    el('div', { class: 'pagesub', text: 'SMTP settings GAM uses to send account notifications (password changes, expiry warnings, unknown sign-ins, and more).' }),
+
+    el('div', { class: 'panel' }, [
+      el('h3', {}, [icon('email'), el('span', { text: 'SMTP server' })]),
+      el('label', { style: 'display:flex;align-items:center;gap:8px;font-weight:400' }, [enabled, el('span', { text: 'Enabled' })]),
+      el('label', { text: 'Host' }), host,
+      el('label', { text: 'Port' }), port,
+      el('label', { style: 'display:flex;align-items:center;gap:8px;font-weight:400' }, [secure, el('span', { text: 'Use TLS' })]),
+      el('label', { text: 'Username' }), username,
+      el('label', { text: 'Password' }), password,
+      el('label', { text: 'From address' }), fromAddress,
+      el('label', { text: 'From name' }), fromName,
+      errEl,
+      el('button', { class: 'btn-primary', text: 'Save', style: 'margin-top:14px', onclick: save }),
+    ]),
+
+    el('div', { class: 'panel' }, [
+      el('h3', {}, [icon('activity'), el('span', { text: 'Send a test email' })]),
+      testTo,
+      el('button', { class: 'btn-ghost btn-sm', text: 'Send test', style: 'margin-top:10px', onclick: sendTest }),
     ]),
   ]));
 }

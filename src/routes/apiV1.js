@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const { toProfile } = require('../models/userStore');
+const { enforcePasswordPolicy } = require('../utils/enforcePasswordPolicy');
 
 function clientIp(req) {
   return req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
@@ -17,7 +18,7 @@ function clientIp(req) {
  * this endpoint isn't the contract it's supposed to be using. Nothing else
  * ever comes back from this endpoint.
  */
-module.exports = function apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog }) {
+module.exports = function apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer }) {
   const router = express.Router();
 
   router.post('/login', express.json(), async (req, res) => {
@@ -69,6 +70,12 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
     const token = await sessionStore.issue(result.user.uid, req.callingApp.app_id);
     await userStore.touchLogin(result.user.uid);
     await activityLog.add('auth', `${result.user.username} signed in via ${req.callingApp.slug}`, result.user.uid, result.user.username);
+
+    const isUnknownLogonPoint = await knownLoginStore.recordAndCheckUnknown(result.user.uid, ip);
+    if (isUnknownLogonPoint) {
+      await mailer.sendUnknownLogon(toProfile(result.user), { ip, appName: req.callingApp.name });
+      await activityLog.add('auth', `${result.user.username} signed in from a new address (via ${req.callingApp.slug})`, result.user.uid, result.user.username);
+    }
 
     return res.json({ status: result.status, token, user: toProfile(result.user) });
   });
@@ -126,6 +133,12 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
       if (!verify(currentPassword, user.password_hash)) {
         return res.status(401).json({ status: 'invalid_request', error: 'Current password is incorrect' });
       }
+    }
+
+    try {
+      await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
+    } catch (err) {
+      return res.status(400).json({ status: 'invalid_request', error: err.message });
     }
 
     const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
