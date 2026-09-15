@@ -1,9 +1,9 @@
 'use strict';
 // Emergency password reset — for when you're locked out and there's no
-// other owner account to reset it for you through the UI.
+// other sysadmin account to reset it for you through the UI.
 //
 // Usage: edit USERNAME and NEW_PASSWORD below, then from inside the gus/
-// folder run:  node reset-owner-password.js
+// folder run:  node reset-sysadmin-password.js
 //
 // Sets must_change_password back to true, so you'll be forced to pick a
 // real password (not this temporary one) the moment you log in.

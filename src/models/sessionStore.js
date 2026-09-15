@@ -76,7 +76,7 @@ class SessionStore {
     return rows;
   }
 
-  /** Revokes one specific session by its token_hash — scoped to a uid so a user can only ever kill their own sessions (unless the caller is an owner acting on someone else's, enforced at the route layer). */
+  /** Revokes one specific session by its token_hash — scoped to a uid so a user can only ever kill their own sessions (unless the caller has the manageUsers capability and is acting on someone else's, enforced at the route layer). */
   async revokeByHash(tokenHash, uid) {
     const { rowCount } = await this.pool.query(
       'DELETE FROM sessions WHERE token_hash = $1 AND uid = $2', [tokenHash, uid]
@@ -84,7 +84,7 @@ class SessionStore {
     return rowCount > 0;
   }
 
-  /** Used when an account is disabled/deleted/password-reset by an owner — kills every active session everywhere. */
+  /** Used when an account is disabled/deleted/password-reset by a sysadmin — kills every active session everywhere. */
   async revokeAllForUser(uid) {
     await this.pool.query('DELETE FROM sessions WHERE uid = $1', [uid]);
   }

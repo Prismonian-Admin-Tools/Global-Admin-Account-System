@@ -49,7 +49,7 @@ module.exports = function accountRoutes({ config, userStore, sessionStore, activ
       const user = await userStore.findByUid(uid);
       if (!user) return res.status(404).json({ error: 'Account not found' });
       if (user.cannot_change_password) {
-        return res.status(403).json({ error: 'This account is not permitted to change its own password. Ask an owner to reset it.' });
+        return res.status(403).json({ error: 'This account is not permitted to change its own password. Ask a sysadmin to reset it.' });
       }
       const { currentPassword, newPassword, confirmPassword } = req.body || {};
       if (!newPassword || newPassword.length < 8) throw new Error('New password must be at least 8 characters');

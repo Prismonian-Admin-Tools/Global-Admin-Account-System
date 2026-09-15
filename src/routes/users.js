@@ -1,8 +1,7 @@
 'use strict';
 const express = require('express');
-const { VALID_ROLES } = require('../models/userStore');
 
-module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) {
+module.exports = function usersRoutes({ userStore, rankStore, sessionStore, activityLog }) {
   const router = express.Router();
 
   function actor(req) {
@@ -25,7 +24,7 @@ module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) 
   router.post('/users', express.json(), async (req, res) => {
     try {
       const { username, password, role, fullName, description } = req.body || {};
-      if (!VALID_ROLES.includes(role)) throw new Error('Invalid role');
+      if (!(await rankStore.exists(role))) throw new Error('Invalid role');
       const profile = await userStore.create({ username, password, role, fullName, description });
       await activityLog.add('admin', `${actorName(req)} created user "${profile.username}" (${profile.role})`, actor(req), actorName(req));
       res.json({ ok: true, profile });
@@ -41,11 +40,11 @@ module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) 
       const target = await userStore.findByUid(req.params.uid);
       if (!target) throw new Error('No such user');
 
-      // Don't let the last owner demote or disable themselves-into-nothing.
-      const demotingOrDisabling = (body.role && body.role !== 'owner') || body.disabled === true;
-      if (target.role === 'owner' && demotingOrDisabling) {
-        const owners = await userStore.countOwners();
-        if (owners <= 1) throw new Error('Cannot remove the last remaining owner account');
+      // Don't let the last sysadmin demote or disable themselves-into-nothing.
+      const demotingOrDisabling = (body.role && body.role !== 'systemAdministrator') || body.disabled === true;
+      if (target.role === 'systemAdministrator' && demotingOrDisabling) {
+        const sysadmins = await userStore.countSysadmins();
+        if (sysadmins <= 1) throw new Error('Cannot remove the last remaining sysadmin account');
       }
 
       if (body.role) {
@@ -88,8 +87,8 @@ module.exports = function usersRoutes({ userStore, sessionStore, activityLog }) 
     try {
       const target = await userStore.findByUid(req.params.uid);
       if (!target) throw new Error('No such user');
-      if (target.role === 'owner' && (await userStore.countOwners()) <= 1) {
-        throw new Error('Cannot delete the last remaining owner account');
+      if (target.role === 'systemAdministrator' && (await userStore.countSysadmins()) <= 1) {
+        throw new Error('Cannot delete the last remaining sysadmin account');
       }
       await userStore.remove(req.params.uid);
       await sessionStore.revokeAllForUser(req.params.uid);

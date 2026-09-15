@@ -12,8 +12,12 @@ function clientIp(req) {
  * panel — this is intentionally a completely separate mechanism from the
  * opaque app tokens issued via /api/v1/login.
  */
-module.exports = function sessionRoutes({ userStore, failedLoginStore, activityLog }) {
+module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog }) {
   const router = express.Router();
+
+  async function withCapabilities(profile) {
+    return { ...profile, capabilities: await rankStore.capabilitiesFor(profile.role) };
+  }
 
   router.post('/session/login', express.json(), async (req, res) => {
     const { username, password } = req.body || {};
@@ -40,7 +44,7 @@ module.exports = function sessionRoutes({ userStore, failedLoginStore, activityL
     await userStore.touchLogin(result.user.uid);
     await activityLog.add('auth', `${result.user.username} signed in to GUS`, result.user.uid, result.user.username);
 
-    res.json({ ok: true, profile: toProfile(result.user), requirePasswordChange: result.status === 'good_change_pw' });
+    res.json({ ok: true, profile: await withCapabilities(toProfile(result.user)), requirePasswordChange: result.status === 'good_change_pw' });
   });
 
   router.post('/session/logout', (req, res) => {
@@ -51,7 +55,7 @@ module.exports = function sessionRoutes({ userStore, failedLoginStore, activityL
     if (!req.session || !req.session.user) return res.status(401).json({ error: 'Not authenticated' });
     const user = await userStore.findByUid(req.session.user.uid);
     if (!user) return req.session.destroy(() => res.status(401).json({ error: 'Account no longer exists' }));
-    res.json({ profile: toProfile(user), requirePasswordChange: !!user.must_change_password });
+    res.json({ profile: await withCapabilities(toProfile(user)), requirePasswordChange: !!user.must_change_password });
   });
 
   return router;

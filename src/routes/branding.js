@@ -2,7 +2,7 @@
 const express = require('express');
 const fs = require('fs');
 const multer = require('multer');
-const { requireAuth, requireOwner } = require('../middleware/frontendAuth');
+const { requireAuth, requireCapability } = require('../middleware/frontendAuth');
 
 const ALLOWED_LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
 
@@ -10,14 +10,15 @@ const ALLOWED_LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/web
  * Mounted ONCE, early — before the global requireAuth chain — because the
  * GET needs to be reachable by a signed-out visitor (the login screen
  * shows the site name/logo before anyone's authenticated). The mutating
- * routes carry their OWN requireAuth+requireOwner right here, per-route,
+ * routes carry their OWN requireAuth+requireCapability right here, per-route,
  * rather than relying on being mounted after some later gate — that
  * pattern (a shared gate applied only via mount order) is exactly what
  * caused the tab-shadowing bug in Console; keeping each route
  * self-contained avoids the same class of mistake here.
  */
-module.exports = function brandingRoutes({ config, siteSettingsStore, activityLog }) {
+module.exports = function brandingRoutes({ config, rankStore, siteSettingsStore, activityLog }) {
   const router = express.Router();
+  const requireBrandingCapability = requireCapability(rankStore, 'manageBranding');
   const logoDir = `${config.avatars.directory}/../branding`;
   fs.mkdirSync(logoDir, { recursive: true });
 
@@ -34,7 +35,7 @@ module.exports = function brandingRoutes({ config, siteSettingsStore, activityLo
     res.json(await siteSettingsStore.get());
   });
 
-  router.put('/branding', requireAuth, requireOwner, express.json(), async (req, res) => {
+  router.put('/branding', requireAuth, requireBrandingCapability, express.json(), async (req, res) => {
     try {
       const { siteName } = req.body || {};
       const settings = await siteSettingsStore.update({ siteName });
@@ -46,7 +47,7 @@ module.exports = function brandingRoutes({ config, siteSettingsStore, activityLo
     }
   });
 
-  router.post('/branding/logo', requireAuth, requireOwner, upload.single('logo'), async (req, res) => {
+  router.post('/branding/logo', requireAuth, requireBrandingCapability, upload.single('logo'), async (req, res) => {
     try {
       if (!req.file) throw new Error('No file uploaded');
       const ext = ALLOWED_LOGO_TYPES[req.file.mimetype];
@@ -60,7 +61,7 @@ module.exports = function brandingRoutes({ config, siteSettingsStore, activityLo
     }
   });
 
-  router.delete('/branding/logo', requireAuth, requireOwner, async (req, res) => {
+  router.delete('/branding/logo', requireAuth, requireBrandingCapability, async (req, res) => {
     try {
       const current = await siteSettingsStore.get();
       if (current.logoExt) {

@@ -1,8 +1,6 @@
 'use strict';
 const passwords = require('../utils/passwords');
 
-const VALID_ROLES = ['owner', 'admin', 'moderator'];
-
 // Column -> API field name mapping. This is the ONLY place that decides
 // what "all their user data" means when handed to an app — never include
 // password_hash here.
@@ -35,8 +33,9 @@ function isPasswordExpired(row) {
 }
 
 class UserStore {
-  constructor(pool) {
+  constructor(pool, rankStore) {
     this.pool = pool;
+    this.rankStore = rankStore;
   }
 
   async findByUsername(username) {
@@ -77,7 +76,7 @@ class UserStore {
 
   /** New accounts always start forced to change their password — no flag to opt out of this. */
   async create({ username, password, role, fullName, description }) {
-    if (!VALID_ROLES.includes(role)) throw new Error('Invalid role');
+    if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
     if (!username || !username.trim()) throw new Error('Username is required');
     if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
 
@@ -93,7 +92,7 @@ class UserStore {
   }
 
   async setRole(uid, role) {
-    if (!VALID_ROLES.includes(role)) throw new Error('Invalid role');
+    if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
     const { rows } = await this.pool.query(
       'UPDATE users SET role = $1, updated_at = now() WHERE uid = $2 RETURNING *', [role, uid]
     );
@@ -175,10 +174,11 @@ class UserStore {
     return rows.length === 0;
   }
 
-  async countOwners() {
-    const { rows } = await this.pool.query("SELECT count(*)::int AS n FROM users WHERE role = 'owner' AND disabled = false");
+  /** Guards against locking everyone out — there must always be at least one enabled sysadmin. */
+  async countSysadmins() {
+    const { rows } = await this.pool.query("SELECT count(*)::int AS n FROM users WHERE role = 'systemAdministrator' AND disabled = false");
     return rows[0].n;
   }
 }
 
-module.exports = { UserStore, VALID_ROLES, toProfile, isPasswordExpired };
+module.exports = { UserStore, toProfile, isPasswordExpired };

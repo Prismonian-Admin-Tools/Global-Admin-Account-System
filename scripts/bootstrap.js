@@ -2,12 +2,13 @@
 // Usage:
 //   npm run bootstrap -- --username adrian --password "temporary-pw-123" [--app console]
 //
-// Creates the first owner account (forced to change password on first
+// Creates the first sysadmin account (forced to change password on first
 // login, like every account) and, optionally, registers a first client
 // app, printing its secret ONCE.
 const { loadConfig } = require('../src/config');
 const { initPool } = require('../src/db');
 const { UserStore } = require('../src/models/userStore');
+const { RankStore } = require('../src/models/rankStore');
 const { AppStore } = require('../src/models/appStore');
 
 function arg(name, fallback = null) {
@@ -27,11 +28,12 @@ async function main() {
 
   const config = loadConfig();
   const pool = initPool(config.database);
-  const userStore = new UserStore(pool);
+  const rankStore = new RankStore(pool);
+  const userStore = new UserStore(pool, rankStore);
   const appStore = new AppStore(pool);
 
-  const profile = await userStore.create({ username, password, role: 'owner', fullName: '', description: 'Bootstrap owner account' });
-  console.log(`\nCreated owner "${profile.username}" (uid ${profile.uid}).`);
+  const profile = await userStore.create({ username, password, role: 'systemAdministrator', fullName: '', description: 'Bootstrap sysadmin account' });
+  console.log(`\nCreated sysadmin "${profile.username}" (uid ${profile.uid}).`);
   console.log('mustChangePassword is set — they will be forced to pick a new password on first login.\n');
 
   if (appSlug) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// GUS admin CLI. Runs against the database directly using config.yml's
+// GAM admin CLI. Runs against the database directly using config.yml's
 // credentials — no HTTP, no login, no session. If you can read
 // config.yml on this box, you already have the database password, so
 // this doesn't grant anything you didn't already have; it just gives you
@@ -12,7 +12,8 @@
 const crypto = require('crypto');
 const { loadConfig } = require('../src/config');
 const { initPool } = require('../src/db');
-const { UserStore, VALID_ROLES } = require('../src/models/userStore');
+const { UserStore } = require('../src/models/userStore');
+const { RankStore, CAPABILITIES } = require('../src/models/rankStore');
 const { AppStore } = require('../src/models/appStore');
 const { SessionStore } = require('../src/models/sessionStore');
 const { FailedLoginStore } = require('../src/models/failedLoginStore');
@@ -54,26 +55,35 @@ function table(rows, columns) {
 
 function usage() {
   console.log(`
-GUS admin CLI — operates directly on the database, no login required.
+GAM admin CLI — operates directly on the database, no login required.
 
 USERS
   users list
   users show <username>
   users create <username> <role> [--password P] [--full-name N] [--description D]
-  users set-role <username> <owner|admin|moderator>
+  users set-role <username> <role>   (see 'ranks list' for valid role names)
   users reset-password <username> [--password P] [--keep-must-change]
   users disable <username>
   users enable <username>
   users rename <username> <newUsername>
   users delete <username>
 
+RANKS
+  ranks list
+  ranks create <name> <label> [--<capability> ...]   (capabilities: ${CAPABILITIES.join(', ')})
+  ranks set-capability <name> <capability> <on|off>
+  ranks delete <name>
+
 APPS
   apps list
-  apps create <slug> [--name N]
+  apps create <slug> [--name N] [--auth-method gam|oauth|saml|oidc|sssd|kerberos]
+  apps set-auth-method <slug> <gam|oauth|saml|oidc|sssd|kerberos>
   apps regenerate-secret <slug>
   apps disable <slug>
   apps enable <slug>
   apps delete <slug>
+  apps block <slug> <username>
+  apps unblock <slug> <username>
 
 SESSIONS
   sessions list <username>
@@ -104,7 +114,8 @@ async function main() {
 
   const config = loadConfig();
   const pool = initPool(config.database);
-  const userStore = new UserStore(pool);
+  const rankStore = new RankStore(pool);
+  const userStore = new UserStore(pool, rankStore);
   const appStore = new AppStore(pool);
   const sessionStore = new SessionStore(pool, config.session);
   const failedLoginStore = new FailedLoginStore(pool, config.rateLimit.login);
@@ -153,7 +164,7 @@ async function main() {
     } else if (sub === 'create') {
       const [username, role] = positional;
       if (!username || !role) { console.error('Usage: users create <username> <role> [--password P] [--full-name N] [--description D]'); process.exit(1); }
-      if (!VALID_ROLES.includes(role)) { console.error(`Role must be one of: ${VALID_ROLES.join(', ')}`); process.exit(1); }
+      if (!(await rankStore.exists(role))) { console.error(`No such rank "${role}". Run "ranks list" to see valid roles.`); process.exit(1); }
       const password = flags.password || genPassword();
       const profile = await userStore.create({ username, password, role, fullName: flags['full-name'] || '', description: flags.description || '' });
       console.log(`Created "${profile.username}" (${profile.role}).`);
@@ -162,7 +173,7 @@ async function main() {
     } else if (sub === 'set-role') {
       const [username, role] = positional;
       const user = await requireUser(username);
-      if (!VALID_ROLES.includes(role)) { console.error(`Role must be one of: ${VALID_ROLES.join(', ')}`); process.exit(1); }
+      if (!(await rankStore.exists(role))) { console.error(`No such rank "${role}". Run "ranks list" to see valid roles.`); process.exit(1); }
       await userStore.setRole(user.uid, role);
       console.log(`"${username}" is now ${role}.`);
     } else if (sub === 'reset-password') {
@@ -188,8 +199,8 @@ async function main() {
       console.log(`Renamed to "${renamed.username}".`);
     } else if (sub === 'delete') {
       const user = await requireUser(positional[0]);
-      if (user.role === 'owner' && (await userStore.countOwners()) <= 1) {
-        console.error('Cannot delete the last remaining owner account.'); process.exit(1);
+      if (user.role === 'systemAdministrator' && (await userStore.countSysadmins()) <= 1) {
+        console.error('Cannot delete the last remaining sysadmin account.'); process.exit(1);
       }
       await userStore.remove(user.uid);
       await sessionStore.revokeAllForUser(user.uid);
@@ -200,22 +211,61 @@ async function main() {
     return pool.end();
   }
 
+  if (cmd === 'ranks') {
+    const { positional, flags } = parseArgs(rest);
+    if (sub === 'list') {
+      table(await rankStore.list(), [
+        { label: 'NAME', get: (r) => r.name },
+        { label: 'LABEL', get: (r) => r.label },
+        { label: 'BUILTIN', get: (r) => r.isBuiltin ? 'yes' : 'no' },
+        { label: 'CAPABILITIES', get: (r) => CAPABILITIES.filter((c) => r.capabilities[c]).join(', ') || '(none)' },
+      ]);
+    } else if (sub === 'create') {
+      const [name, label] = positional;
+      if (!name || !label) { console.error(`Usage: ranks create <name> <label> [--<capability> ...]  (capabilities: ${CAPABILITIES.join(', ')})`); process.exit(1); }
+      const capabilities = {};
+      for (const cap of CAPABILITIES) if (flags[cap]) capabilities[cap] = true;
+      const rank = await rankStore.create({ name, label, capabilities });
+      console.log(`Created rank "${rank.label}" (${rank.name}).`);
+    } else if (sub === 'set-capability') {
+      const [name, capability, onOff] = positional;
+      if (!name || !CAPABILITIES.includes(capability) || !['on', 'off'].includes(onOff)) {
+        console.error(`Usage: ranks set-capability <name> <capability> <on|off>  (capabilities: ${CAPABILITIES.join(', ')})`); process.exit(1);
+      }
+      const rank = await rankStore.update(name, { capabilities: { [capability]: onOff === 'on' } });
+      console.log(`"${rank.label}" ${capability} is now ${onOff}.`);
+    } else if (sub === 'delete') {
+      await rankStore.remove(positional[0]);
+      console.log(`Deleted rank "${positional[0]}".`);
+    } else {
+      console.error('Unknown ranks subcommand. See --help.'); process.exit(1);
+    }
+    return pool.end();
+  }
+
   if (cmd === 'apps') {
     const { positional, flags } = parseArgs(rest);
     if (sub === 'list') {
       table(await appStore.list(), [
         { label: 'SLUG', get: (a) => a.slug },
         { label: 'NAME', get: (a) => a.name },
+        { label: 'AUTH METHOD', get: (a) => a.authMethod },
         { label: 'STATUS', get: (a) => a.disabled ? 'disabled' : 'active' },
         { label: 'APP ID', get: (a) => a.appId },
       ]);
     } else if (sub === 'create') {
       const [slug] = positional;
-      if (!slug) { console.error('Usage: apps create <slug> [--name N]'); process.exit(1); }
-      const { app, secret } = await appStore.create({ slug, name: flags.name || slug });
-      console.log(`Registered "${app.slug}".`);
+      if (!slug) { console.error('Usage: apps create <slug> [--name N] [--auth-method gam|oauth|saml|oidc|sssd|kerberos]'); process.exit(1); }
+      const { app, secret } = await appStore.create({ slug, name: flags.name || slug, authMethod: flags['auth-method'] || 'gam' });
+      console.log(`Registered "${app.slug}" (auth method: ${app.authMethod}).`);
       console.log(`App ID: ${app.appId}`);
       console.log(`Secret (save this now — it will not be shown again): ${secret}`);
+    } else if (sub === 'set-auth-method') {
+      const [slug, authMethod] = positional;
+      const app = await requireApp(slug);
+      if (!authMethod) { console.error('Usage: apps set-auth-method <slug> <gam|oauth|saml|oidc|sssd|kerberos>'); process.exit(1); }
+      const updated = await appStore.setAuthMethod(app.app_id, authMethod);
+      console.log(`"${updated.slug}" auth method is now ${updated.authMethod}.`);
     } else if (sub === 'regenerate-secret') {
       const app = await requireApp(positional[0]);
       const result = await appStore.regenerateSecret(app.app_id);
@@ -233,6 +283,18 @@ async function main() {
       const app = await requireApp(positional[0]);
       await appStore.remove(app.app_id);
       console.log(`Deleted "${app.slug}".`);
+    } else if (sub === 'block') {
+      const [slug, username] = positional;
+      const app = await requireApp(slug);
+      const user = await requireUser(username);
+      await appStore.blockUser(app.app_id, user.uid);
+      console.log(`"${user.username}" is now blocked from "${app.slug}".`);
+    } else if (sub === 'unblock') {
+      const [slug, username] = positional;
+      const app = await requireApp(slug);
+      const user = await requireUser(username);
+      await appStore.unblockUser(app.app_id, user.uid);
+      console.log(`"${user.username}"'s access to "${app.slug}" was restored.`);
     } else {
       console.error('Unknown apps subcommand. See --help.'); process.exit(1);
     }
@@ -291,7 +353,7 @@ async function main() {
       console.log(`Site name set to "${settings.siteName}".`);
     } else if (sub === 'remove-logo') {
       const settings = await siteSettingsStore.update({ logoExt: null });
-      console.log('Logo cleared (falls back to the default GUS mark). Note: this only clears the database field — delete the file under data/branding/ yourself if you want it fully gone.');
+      console.log('Logo cleared (falls back to the default GAM mark). Note: this only clears the database field — delete the file under data/branding/ yourself if you want it fully gone.');
     } else {
       console.error('Unknown branding subcommand. See --help.'); process.exit(1);
     }
