@@ -14,8 +14,8 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
   /** Returns the plaintext secret ONCE, at creation. It cannot be retrieved again — only regenerated. */
   router.post('/apps', express.json(), async (req, res) => {
     try {
-      const { slug, name, authMethod } = req.body || {};
-      const { app, secret } = await appStore.create({ slug, name, authMethod });
+      const { slug, name, authMethod, redirectUris } = req.body || {};
+      const { app, secret } = await appStore.create({ slug, name, authMethod, redirectUris });
       await activityLog.add('apps', `${actorName(req)} registered app "${app.name}" (${app.slug})`, actor(req), actorName(req));
       res.json({ ok: true, app, secret });
     } catch (err) {
@@ -27,6 +27,16 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
     try {
       const app = await appStore.setAuthMethod(req.params.appId, req.body?.authMethod);
       await activityLog.add('apps', `${actorName(req)} set "${app.name}"'s auth method to ${app.authMethod}`, actor(req), actorName(req));
+      res.json({ ok: true, app });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.put('/apps/:appId/redirect-uris', express.json(), async (req, res) => {
+    try {
+      const app = await appStore.setRedirectUris(req.params.appId, req.body?.redirectUris || []);
+      await activityLog.add('apps', `${actorName(req)} updated "${app.name}"'s OIDC redirect URIs`, actor(req), actorName(req));
       res.json({ ok: true, app });
     } catch (err) {
       res.status(400).json({ error: err.message });

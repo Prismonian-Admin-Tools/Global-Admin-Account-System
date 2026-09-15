@@ -84,8 +84,10 @@ RANKS
 
 APPS
   apps list
-  apps create <slug> [--name N] [--auth-method gam|oauth|saml|oidc|sssd|kerberos]
+  apps create <slug> [--name N] [--auth-method gam|oauth|saml|oidc|sssd|kerberos] [--redirect-uris uri1,uri2]
   apps set-auth-method <slug> <gam|oauth|saml|oidc|sssd|kerberos>
+  apps set-redirect-uris <slug> <uri1,uri2,...>   (OIDC apps only)
+  apps oidc-info <slug>                            (issuer/client_id/redirect_uris for an OIDC app)
   apps regenerate-secret <slug>
   apps disable <slug>
   apps enable <slug>
@@ -154,6 +156,15 @@ async function main() {
     const app = await appStore.findBySlug(slug);
     if (!app) { console.error(`No such app "${slug}".`); process.exit(1); }
     return app;
+  }
+  function printOidcInfo(app, secret) {
+    const issuer = config.server.publicUrl.replace(/\/$/, '');
+    console.log(`\nOIDC connection info for "${app.slug}":`);
+    console.log(`  Issuer / discovery: ${issuer}/.well-known/openid-configuration`);
+    console.log(`  client_id:          ${app.appId}`);
+    if (secret) console.log(`  client_secret:      ${secret}`);
+    console.log(`  redirect_uris:      ${app.redirectUris.join(', ') || '(none registered yet)'}`);
+    console.log('  PKCE (S256) is required on every authorization request.');
   }
 
   // ---- top-level shortcut ----
@@ -286,17 +297,30 @@ async function main() {
       ]);
     } else if (sub === 'create') {
       const [slug] = positional;
-      if (!slug) { console.error('Usage: apps create <slug> [--name N] [--auth-method gam|oauth|saml|oidc|sssd|kerberos]'); process.exit(1); }
-      const { app, secret } = await appStore.create({ slug, name: flags.name || slug, authMethod: flags['auth-method'] || 'gam' });
+      if (!slug) { console.error('Usage: apps create <slug> [--name N] [--auth-method gam|oauth|saml|oidc|sssd|kerberos] [--redirect-uris uri1,uri2]'); process.exit(1); }
+      const redirectUris = flags['redirect-uris'] ? flags['redirect-uris'].split(',').map((s) => s.trim()).filter(Boolean) : [];
+      const { app, secret } = await appStore.create({ slug, name: flags.name || slug, authMethod: flags['auth-method'] || 'gam', redirectUris });
       console.log(`Registered "${app.slug}" (auth method: ${app.authMethod}).`);
       console.log(`App ID: ${app.appId}`);
       console.log(`Secret (save this now — it will not be shown again): ${secret}`);
+      if (app.authMethod === 'oidc') printOidcInfo(app, secret);
     } else if (sub === 'set-auth-method') {
       const [slug, authMethod] = positional;
       const app = await requireApp(slug);
       if (!authMethod) { console.error('Usage: apps set-auth-method <slug> <gam|oauth|saml|oidc|sssd|kerberos>'); process.exit(1); }
       const updated = await appStore.setAuthMethod(app.app_id, authMethod);
       console.log(`"${updated.slug}" auth method is now ${updated.authMethod}.`);
+    } else if (sub === 'set-redirect-uris') {
+      const [slug, uriList] = positional;
+      const app = await requireApp(slug);
+      if (!uriList) { console.error('Usage: apps set-redirect-uris <slug> <uri1,uri2,...>'); process.exit(1); }
+      const redirectUris = uriList.split(',').map((s) => s.trim()).filter(Boolean);
+      const updated = await appStore.setRedirectUris(app.app_id, redirectUris);
+      console.log(`"${updated.slug}" redirect URIs: ${updated.redirectUris.join(', ') || '(none)'}`);
+    } else if (sub === 'oidc-info') {
+      const app = await requireApp(positional[0]);
+      if (app.auth_method !== 'oidc') { console.error(`"${app.slug}" is not an OIDC app.`); process.exit(1); }
+      printOidcInfo({ appId: app.app_id, slug: app.slug, redirectUris: app.redirect_uris || [] }, null);
     } else if (sub === 'regenerate-secret') {
       const app = await requireApp(positional[0]);
       const result = await appStore.regenerateSecret(app.app_id);

@@ -3,10 +3,13 @@ const tokens = require('../utils/tokens');
 
 const AUTH_METHODS = ['gam', 'oauth', 'saml', 'oidc', 'sssd', 'kerberos'];
 
-// Only 'gam' actually authenticates anyone today — see apiV1's /login for
-// why every other value short-circuits straight to a generic failure
-// instead of running the username/password contract.
-const DARK_AUTH_METHODS = ['sssd', 'kerberos'];
+// 'gam' (apiV1's /login contract) and 'oidc' (routes/oidc.js) are the
+// only two that actually authenticate anyone today. A bare 'oauth'
+// (without OIDC on top) and 'saml' are unimplemented; 'sssd' and
+// 'kerberos' are a deliberate dark release for eventual domain-logon
+// support. Every non-gam value still short-circuits /api/v1/login to a
+// generic failure regardless — see apiV1.js.
+const DARK_AUTH_METHODS = ['oauth', 'saml', 'sssd', 'kerberos'];
 
 function toSafe(row) {
   if (!row) return null;
@@ -16,8 +19,17 @@ function toSafe(row) {
     name: row.name,
     disabled: row.disabled,
     authMethod: row.auth_method,
+    redirectUris: row.redirect_uris || [],
     createdAt: row.created_at,
   };
+}
+
+function validRedirectUris(redirectUris) {
+  if (!Array.isArray(redirectUris)) return false;
+  return redirectUris.every((uri) => {
+    try { const u = new URL(uri); return u.protocol === 'https:' || u.hostname === 'localhost' || u.hostname === '127.0.0.1'; }
+    catch (e) { return false; }
+  });
 }
 
 class AppStore {
@@ -41,16 +53,20 @@ class AppStore {
   }
 
   /** Returns the plaintext secret ONCE — it's never retrievable again after this. */
-  async create({ slug, name, authMethod = 'gam' }) {
+  async create({ slug, name, authMethod = 'gam', redirectUris = [] }) {
     if (!slug || !slug.trim()) throw new Error('App slug is required');
     if (!AUTH_METHODS.includes(authMethod)) throw new Error('Invalid auth method');
+    if (authMethod === 'oidc') {
+      if (!redirectUris.length) throw new Error('An OIDC app needs at least one redirect URI');
+      if (!validRedirectUris(redirectUris)) throw new Error('Redirect URIs must be https:// (or http://localhost for local testing)');
+    }
     const existing = await this.findBySlug(slug);
     if (existing) throw new Error('An app with that slug already exists');
 
     const secret = tokens.generate('sk');
     const { rows } = await this.pool.query(
-      'INSERT INTO apps (slug, name, secret_hash, auth_method) VALUES ($1, $2, $3, $4) RETURNING *',
-      [slug.trim(), name || slug.trim(), tokens.fingerprint(secret), authMethod]
+      'INSERT INTO apps (slug, name, secret_hash, auth_method, redirect_uris) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [slug.trim(), name || slug.trim(), tokens.fingerprint(secret), authMethod, redirectUris]
     );
     return { app: toSafe(rows[0]), secret };
   }
@@ -59,6 +75,15 @@ class AppStore {
     if (!AUTH_METHODS.includes(authMethod)) throw new Error('Invalid auth method');
     const { rows } = await this.pool.query(
       'UPDATE apps SET auth_method = $1 WHERE app_id = $2 RETURNING *', [authMethod, appId]
+    );
+    if (!rows[0]) throw new Error('No such app');
+    return toSafe(rows[0]);
+  }
+
+  async setRedirectUris(appId, redirectUris) {
+    if (!validRedirectUris(redirectUris)) throw new Error('Redirect URIs must be https:// (or http://localhost for local testing)');
+    const { rows } = await this.pool.query(
+      'UPDATE apps SET redirect_uris = $1 WHERE app_id = $2 RETURNING *', [redirectUris, appId]
     );
     if (!rows[0]) throw new Error('No such app');
     return toSafe(rows[0]);

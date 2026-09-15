@@ -28,6 +28,9 @@ function toProfile(row) {
     lastLogin: row.last_login,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    // Dormant — see src/models/mfaStore.js. Exposed so admins can see
+    // who's enrolled; nothing at login checks this yet.
+    mfaEnabled: row.mfa_enabled,
   };
 }
 
@@ -47,7 +50,7 @@ const JOINED_SELECT = `
   SELECT u.uid, u.created_at,
          un.username,
          p.password_hash, p.password_simhash, p.must_change_password, p.cannot_change_password,
-         p.password_never_expires, p.password_expires_at,
+         p.password_never_expires, p.password_expires_at, p.mfa_enabled,
          d.role, d.full_name, d.description, d.email, d.disabled, d.theme, d.avatar_ext, d.last_login,
          d.updated_at
   FROM users u

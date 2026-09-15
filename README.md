@@ -188,18 +188,98 @@ one app, `/api/v1/login` returns `good-no-access` instead of `good` /
 ## App auth methods
 
 Every registered app has an `authMethod`, defaulting to `gam` (this
-service's own username/password + opaque token contract — the only one
-that's actually wired up right now). `oauth`, `saml`, and `oidc` are
-accepted values reserved for upcoming protocol support. `sssd` and
-`kerberos` are a **dark release** for eventual domain-logon support: the
-column accepts them so app records can be tagged ahead of time, but
-nothing in GAM speaks either protocol yet.
+service's own username/password + opaque token contract). Two values are
+actually functional: `gam` and `oidc` (see
+[Federated identity](#federated-identity-gam-as-an-openid-connect-provider)
+below). `oauth` (bare OAuth2 without OIDC on top) and `saml` are accepted
+values with no implementation behind them yet. `sssd` and `kerberos` are
+a **dark release** for eventual domain-logon support: the column accepts
+them so app records can be tagged ahead of time, but nothing in GAM
+speaks either protocol.
 
 Whatever the value, `/api/v1/login` is specifically the `gam` contract —
 an app registered under any other method always gets `bad` back from it
 (never a hint about which protocol it should be using instead, and never
 a hint about whether the account needs a forced password change), since
 that app isn't supposed to be calling this endpoint at all.
+
+## Federated identity: GAM as an OpenID Connect Provider
+
+Some apps can be taught the native `gam` contract above; others —
+off-the-shelf software, anything that only knows how to integrate SSO
+via a standard protocol — can't. For those, an app registered with
+`authMethod: "oidc"` can point any standard OIDC client library at GAM
+itself as the identity provider. Apps that *do* support the native
+contract keep using `/api/v1/login` as before — this is a second, parallel
+front door, not a replacement.
+
+It's built entirely out of infrastructure GAM already has:
+
+- **`client_id` / `client_secret` are an app's existing `appId` / app
+  secret** — the same pair already used for `X-App-Id` / `X-App-Secret`.
+  There's no separate OIDC credential type to register or lose track of.
+- **The OIDC `access_token` IS the opaque `tok_...` token** the native
+  protocol already issues via the same session store. An OIDC-
+  authenticated sign-in shows up in "Active Sessions" and can be revoked
+  ("sign out everywhere") exactly like a native one.
+- Only the **`id_token`** is new: a short-lived (5 minute) RS256-signed
+  JWT asserting who just authenticated, exactly as long as the initial
+  code-for-token exchange, per spec — not meant for ongoing API calls.
+
+Supported: authorization-code flow only (no implicit/hybrid). **PKCE
+(S256) is mandatory** for every client, confidential or not, per current
+best practice. Standard endpoints:
+
+```
+GET  /.well-known/openid-configuration
+GET  /.well-known/jwks.json
+GET  /oidc/authorize      (response_type=code, PKCE required)
+POST /oidc/token          (grant_type=authorization_code)
+GET  /oidc/userinfo       (Authorization: Bearer <access_token>)
+```
+
+Registering an OIDC app also needs `redirectUris` — an allow-list GAM
+checks with an **exact string match** (never a prefix) before it will
+send an authorization code anywhere, so a registered app can't be used
+as an open redirect. Manage them from the Apps tab's "OIDC info" button,
+`PUT /api/apps/:appId/redirect-uris`, or `apps set-redirect-uris` /
+`apps oidc-info` in the CLI.
+
+There's no consent screen: an app has to be registered by a sysadmin
+before it can appear at `/oidc/authorize` at all, the same trust
+boundary `/api/v1/login` already relies on. If the browser hitting
+`/oidc/authorize` isn't signed into GAM (or has a forced password change
+pending), it's redirected to `/?continue=<the original authorize URL>`;
+GAM's frontend finishes login (or the forced change) and then navigates
+the browser back to that URL as a real page load, so the OIDC route runs
+again now-authenticated. GAM only *consumes* OIDC identity for its own
+login — it doesn't offer signing into GAM itself via an external IdP.
+
+`oidc_signing_keys` holds GAM's own RSA keypair for signing ID tokens,
+generated once (at first boot) and reused for the life of the install;
+`/.well-known/jwks.json` publishes only the public half. `oidc_auth_codes`
+holds authorization codes, single-use and short-lived (60 seconds) —
+consuming one is an atomic `UPDATE ... WHERE used = false`, so a code
+can't be redeemed twice even under a race.
+
+## Multi-factor authentication (dormant)
+
+A user can enroll in TOTP (authenticator-app codes) from My Account: a
+real QR code, confirming with a live code before it's considered set up,
+and one-time backup codes shown exactly once, same pattern as an app
+secret. `mfaEnabled` is on every user profile, so admins can see who's
+enrolled. **Nothing checks a code at login yet** — `/api/v1/login` and
+`/session/login` don't ask for one, regardless of `mfaEnabled`. This is
+groundwork: whichever future phase turns enforcement on will decide
+things like which apps require it and what a partial-auth state looks
+like across the token contract, without needing to touch the enrollment
+UI, storage, or backup codes built here.
+
+`passwords.mfa_secret` is encrypted at rest the same way the SMTP
+password is (`src/utils/secretBox.js`) — GAM has to read a submitted
+code's expected value back in plaintext to check it, so it can't be a
+one-way hash, same tradeoff already noted for the SMTP password in
+[Security notes](#security-notes).
 
 ## Password policy
 
@@ -288,8 +368,13 @@ users/:uid`, or `users set-email <username> <email>` in the CLI.
   given account, with per-session or "sign out everywhere" revocation.
   Available both to a user for their own account (`/api/account/sessions`)
   and, with `manageUsers`, for anyone (`/api/users/:uid/sessions`).
+- **Two-factor authentication** — TOTP enrollment (QR code, backup codes)
+  from My Account for any signed-in user. See
+  [Multi-factor authentication](#multi-factor-authentication-dormant) above
+  for why it's dormant.
 - **Apps** — register/regenerate/disable client applications, set an
-  app's auth method, and manage per-app user access. Requires `manageApps`.
+  app's auth method, manage per-app user access, and (for `oidc` apps)
+  view connection info and manage redirect URIs. Requires `manageApps`.
 - **Activity** — filterable (category, actor, date range) audit log with
   CSV export at `/api/activity/export`. The acting username is stored
   denormalized on each entry, so it survives that account later being
@@ -323,7 +408,8 @@ users disable/enable <username> | rename <username> <new> | delete <username>
 
 ranks list | create <name> <label> [--<capability> ...] | set-capability <name> <capability> <on|off> | delete <name>
 
-apps list | create <slug> [--name N] [--auth-method M] | set-auth-method <slug> <M> | regenerate-secret <slug> | disable/enable/delete <slug>
+apps list | create <slug> [--name N] [--auth-method M] [--redirect-uris uri1,uri2] | set-auth-method <slug> <M> | regenerate-secret <slug> | disable/enable/delete <slug>
+apps set-redirect-uris <slug> <uri1,uri2,...> | oidc-info <slug>
 apps block <slug> <username> | unblock <slug> <username>
 
 sessions list <username> | revoke-all <username>
@@ -378,6 +464,17 @@ first login after either — no flag turns that off.
   keyed from `server.sessionSecret`), not plaintext, and never returned
   by any API response — but unlike a user's password or an app secret,
   someone with both database and `sessionSecret` access could recover it.
+- The same reversible-encryption tradeoff applies to the dormant MFA
+  secret (`passwords.mfa_secret`) — GAM has to check a submitted 6-digit
+  code against it, which a one-way hash can't support.
+- OIDC ID tokens are signed (RS256), not encrypted — they carry the same
+  claims (username, name, email) an app already gets back from
+  `/api/v1/login` or `/oidc/userinfo`, not anything more sensitive.
+  GAM's private signing key never leaves the server; only its public half
+  is ever published, at `/.well-known/jwks.json`.
+- OIDC redirect URIs are matched exactly, never as a prefix — a
+  registered app's callback URL can't be used to redirect an
+  authorization code somewhere else by appending to it.
 
 
 Note to developers and testers:

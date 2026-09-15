@@ -293,6 +293,20 @@ function brandmark() {
   return el('div', { class: 'brandmark', html: `${logo}<span class="word">${wordHtml}</span>` });
 }
 
+/**
+ * /oidc/authorize sends a signed-out (or must-change-password) browser
+ * here with ?continue=<the original authorize URL> once GAM's own login
+ * is out of the way. This is a real page navigation, not a client-side
+ * route change, so the server-side OIDC route runs again — now
+ * authenticated — and finishes redirecting to the client app.
+ */
+function continueIfNeeded() {
+  const params = new URLSearchParams(location.search);
+  const dest = params.get('continue');
+  if (dest && dest.startsWith('/')) { window.location.href = dest; return true; }
+  return false;
+}
+
 /* ---------------- boot ---------------- */
 async function boot() {
   applyTheme('ember');
@@ -305,6 +319,7 @@ async function boot() {
     state.profile = profile;
     applyTheme(profile.theme);
     if (requirePasswordChange) return renderForceChange();
+    if (continueIfNeeded()) return;
     render();
   } catch (e) {
     renderLogin();
@@ -328,6 +343,7 @@ function renderLogin() {
       state.profile = profile;
       applyTheme(profile.theme);
       if (requirePasswordChange) return renderForceChange();
+      if (continueIfNeeded()) return;
       render();
     } catch (e) { errEl.textContent = e.message; }
   }
@@ -358,6 +374,7 @@ function renderForceChange() {
     try {
       await api('/account/password', { method: 'PUT', body: { newPassword: pw1.value, confirmPassword: pw2.value } });
       toast('Password updated', 'ok');
+      if (continueIfNeeded()) return;
       render();
     } catch (e) { errEl.textContent = e.message; }
   }
@@ -567,6 +584,8 @@ async function renderAccount(content) {
       el('button', { class: 'btn-primary', text: 'Update password', style: 'margin-top:14px', onclick: changePw }),
     ]),
 
+    el('div', { class: 'panel', id: 'mfa-panel' }, [renderMfaPanelLoading()]),
+
     el('div', { class: 'panel', id: 'sessions-panel' }, [renderSessionsPanelLoading()]),
 
     el('div', { class: 'panel' }, [
@@ -581,6 +600,102 @@ async function renderAccount(content) {
   ]));
 
   loadOwnSessions();
+  loadMfaPanel();
+}
+
+/**
+ * Dormant two-factor auth — a real enrollment flow (QR code, confirm
+ * with a live code, one-time backup codes), but nothing at login checks
+ * this yet. See src/models/mfaStore.js.
+ */
+function renderMfaPanelLoading() {
+  return el('div', { class: 'muted', text: 'Loading two-factor status…' });
+}
+
+async function loadMfaPanel() {
+  const panel = document.getElementById('mfa-panel');
+  if (!panel) return;
+  try {
+    const status = await api('/account/mfa');
+    panel.innerHTML = '';
+    panel.appendChild(el('h3', {}, [icon('policy'), el('span', { text: 'Two-factor authentication' })]));
+    panel.appendChild(el('div', { class: 'hint', text: 'Authenticator-app codes for your account. This is a preview — GAM doesn’t require a code to sign in yet.' }));
+
+    if (status.enabled) {
+      panel.appendChild(el('div', { class: 'badge ok', style: 'margin:10px 0;display:inline-block', text: 'Enabled' }));
+      const pwInput = el('input', { type: 'password', placeholder: 'Current password to disable' });
+      const errEl = el('div', { class: 'err' });
+      async function disable() {
+        errEl.textContent = '';
+        try {
+          await api('/account/mfa/disable', { method: 'POST', body: { currentPassword: pwInput.value } });
+          toast('Two-factor disabled', 'ok');
+          loadMfaPanel();
+        } catch (e) { errEl.textContent = e.message; }
+      }
+      panel.appendChild(el('div', {}, [pwInput]));
+      panel.appendChild(el('button', { class: 'btn-danger btn-sm', text: 'Disable', style: 'margin-top:10px', onclick: disable }));
+      panel.appendChild(errEl);
+    } else {
+      panel.appendChild(el('button', { class: 'btn-primary btn-sm', style: 'margin-top:6px', text: 'Set up two-factor', onclick: openMfaSetupModal }));
+    }
+  } catch (e) {
+    panel.innerHTML = '';
+    panel.appendChild(el('div', { class: 'err', text: 'Could not load two-factor status: ' + e.message }));
+  }
+}
+
+function openMfaSetupModal() {
+  const errEl = el('div', { class: 'err' });
+  const img = el('img', { style: 'width:180px;height:180px;display:block;margin:0 auto' });
+  const secretBox = el('div', { class: 'secret-box' });
+  const token = el('input', { type: 'text', placeholder: '6-digit code', maxlength: '6', inputmode: 'numeric' });
+
+  openModal([
+    el('h3', {}, [icon('policy'), el('span', { text: 'Set up two-factor' })]),
+    el('div', { class: 'hint', text: 'Scan this with an authenticator app (Google Authenticator, 1Password, etc.), or enter the code below manually.' }),
+    img,
+    secretBox,
+    el('label', { text: 'Enter the 6-digit code it shows', style: 'margin-top:10px' }), token,
+    errEl,
+    el('div', { class: 'modal-actions' }, [
+      el('div', { class: 'right' }, [
+        el('button', { class: 'btn-ghost', text: 'Cancel', onclick: closeModal }),
+        el('button', { class: 'btn-primary', text: 'Verify', onclick: confirmSetup }),
+      ]),
+    ]),
+  ]);
+
+  api('/account/mfa/setup', { method: 'POST' }).then(({ secret, qrCodeDataUrl }) => {
+    img.src = qrCodeDataUrl;
+    secretBox.appendChild(el('span', { text: secret }));
+  }).catch((e) => { errEl.textContent = e.message; });
+
+  async function confirmSetup() {
+    errEl.textContent = '';
+    try {
+      const { backupCodes } = await api('/account/mfa/confirm', { method: 'POST', body: { token: token.value } });
+      showMfaBackupCodes(backupCodes);
+    } catch (e) { errEl.textContent = e.message; }
+  }
+}
+
+function showMfaBackupCodes(codes) {
+  function copyAll() {
+    navigator.clipboard && navigator.clipboard.writeText(codes.join('\n'));
+    toast('Copied', 'ok');
+  }
+  openModal([
+    el('h3', {}, [icon('policy'), el('span', { text: 'Two-factor enabled' })]),
+    el('div', { class: 'hint', text: 'Save these backup codes somewhere safe — they won’t be shown again, and each one works once.' }),
+    el('div', { class: 'secret-box', style: 'font-family:var(--mono);white-space:pre-line;line-height:1.8' }, [el('span', { text: codes.join('\n') })]),
+    el('button', { class: 'btn-ghost btn-sm', text: 'Copy all', style: 'margin-top:8px', onclick: copyAll }),
+    el('div', { class: 'modal-actions' }, [
+      el('div', { class: 'right' }, [
+        el('button', { class: 'btn-primary', text: 'Done', onclick: () => { closeModal(); loadMfaPanel(); } }),
+      ]),
+    ]),
+  ]);
 }
 
 function renderSessionsPanelLoading() {
@@ -1091,8 +1206,8 @@ async function loadUserSessions(uid) {
 }
 
 /* ---------------- apps tab (manageApps capability) ---------------- */
-const AUTH_METHODS = ['gam', 'oauth', 'saml', 'oidc', 'sssd', 'kerberos'];
-const DARK_AUTH_METHODS = ['sssd', 'kerberos'];
+const AUTH_METHODS = ['gam', 'oidc', 'oauth', 'saml', 'sssd', 'kerberos'];
+const DARK_AUTH_METHODS = ['oauth', 'saml', 'sssd', 'kerberos'];
 
 async function renderApps(content) {
   const apps = await api('/apps');
@@ -1115,16 +1230,20 @@ async function renderApps(content) {
 function appRow(a) {
   const statusBadge = a.disabled ? el('span', { class: 'badge disabled', text: 'disabled' }) : el('span', { class: 'badge ok', text: 'active' });
   const authBadge = el('span', { class: 'badge', text: a.authMethod + (DARK_AUTH_METHODS.includes(a.authMethod) ? ' (dark)' : '') });
+  const actions = [
+    el('button', { class: 'btn-ghost btn-sm', text: 'Access', onclick: () => openAppAccessModal(a) }),
+  ];
+  if (a.authMethod === 'oidc') actions.push(el('button', { class: 'btn-ghost btn-sm', text: 'OIDC info', onclick: () => openOidcInfoModal(a) }));
+  actions.push(
+    el('button', { class: 'btn-ghost btn-sm', text: 'Regenerate secret', onclick: () => regenerateSecret(a) }),
+    el('button', { class: 'btn-ghost btn-sm', text: a.disabled ? 'Enable' : 'Disable', onclick: () => toggleApp(a) }),
+  );
   return el('tr', {}, [
     el('td', { text: a.name }),
     el('td', {}, [el('span', { class: 'badge', style: 'font-family:var(--mono)', text: a.slug })]),
     el('td', {}, [authBadge]),
     el('td', {}, [statusBadge]),
-    el('td', { class: 'row-actions' }, [
-      el('button', { class: 'btn-ghost btn-sm', text: 'Access', onclick: () => openAppAccessModal(a) }),
-      el('button', { class: 'btn-ghost btn-sm', text: 'Regenerate secret', onclick: () => regenerateSecret(a) }),
-      el('button', { class: 'btn-ghost btn-sm', text: a.disabled ? 'Enable' : 'Disable', onclick: () => toggleApp(a) }),
-    ]),
+    el('td', { class: 'row-actions' }, actions),
   ]);
 }
 
@@ -1132,12 +1251,23 @@ function openCreateAppModal() {
   const slug = el('input', { type: 'text', placeholder: 'e.g. console' });
   const name = el('input', { type: 'text', placeholder: 'e.g. Interstellar Console' });
   const authMethod = el('select', {}, AUTH_METHODS.map((m) => el('option', { value: m, text: m + (DARK_AUTH_METHODS.includes(m) ? ' (dark release — not yet functional)' : '') })));
+  const redirectUris = el('textarea', { rows: '2', placeholder: 'https://client.example.com/callback\n(one per line)' });
+  const redirectUrisWrap = el('div', {}, [
+    el('label', { text: 'Redirect URIs (one per line)' }), redirectUris,
+    el('div', { class: 'hint', text: 'Where GAM is allowed to send the user back after they sign in — must match exactly.' }),
+  ]);
+  redirectUrisWrap.style.display = 'none';
+  authMethod.addEventListener('change', () => { redirectUrisWrap.style.display = authMethod.value === 'oidc' ? '' : 'none'; });
   const errEl = el('div', { class: 'err' });
 
   async function submit() {
     try {
-      const { app, secret } = await api('/apps', { method: 'POST', body: { slug: slug.value, name: name.value, authMethod: authMethod.value } });
-      renderSecretModal(app, secret);
+      const body = { slug: slug.value, name: name.value, authMethod: authMethod.value };
+      if (authMethod.value === 'oidc') body.redirectUris = redirectUris.value.split('\n').map((s) => s.trim()).filter(Boolean);
+      const { app, secret } = await api('/apps', { method: 'POST', body });
+      closeModal();
+      if (app.authMethod === 'oidc') openOidcInfoModal(app, secret);
+      else renderSecretModal(app, secret);
     } catch (e) { errEl.textContent = e.message; }
   }
 
@@ -1146,7 +1276,8 @@ function openCreateAppModal() {
     el('label', { text: 'Slug (used in the appId lookup)' }), slug,
     el('label', { text: 'Display name' }), name,
     el('label', { text: 'Auth method' }), authMethod,
-    el('div', { class: 'hint', text: 'Only "gam" (this service’s own username/password login) is functional today — the rest are reserved for upcoming protocol support.' }),
+    el('div', { class: 'hint', text: '"gam" (this service’s own username/password login) and "oidc" (OpenID Connect) are functional today — the rest are reserved for upcoming protocol support.' }),
+    redirectUrisWrap,
     errEl,
     el('div', { class: 'modal-actions' }, [
       el('div', { class: 'right' }, [
@@ -1155,6 +1286,47 @@ function openCreateAppModal() {
       ]),
     ]),
   ]);
+}
+
+/** GAM is the Identity Provider here — this is what a client app's OIDC library needs to point at GAM. */
+function openOidcInfoModal(app, secret) {
+  function copy(text) { navigator.clipboard && navigator.clipboard.writeText(text); toast('Copied', 'ok'); }
+  const redirectUris = el('textarea', { rows: '2' }); redirectUris.value = (app.redirectUris || []).join('\n');
+  const errEl = el('div', { class: 'err' });
+  async function saveRedirectUris() {
+    errEl.textContent = '';
+    try {
+      const updated = await api(`/apps/${app.appId}/redirect-uris`, { method: 'PUT', body: { redirectUris: redirectUris.value.split('\n').map((s) => s.trim()).filter(Boolean) } });
+      toast('Redirect URIs saved', 'ok');
+      app.redirectUris = updated.app.redirectUris;
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  const children = [
+    el('h3', { text: '"' + app.name + '" — OIDC connection info' }),
+    el('div', { class: 'muted', text: 'Discovery document:' }),
+    el('div', { class: 'secret-box' }, [el('span', { text: `${location.origin}/.well-known/openid-configuration` })]),
+    el('div', { class: 'muted', text: 'client_id:', style: 'margin-top:10px' }),
+    el('div', { class: 'secret-box' }, [el('span', { text: app.appId })]),
+    el('button', { class: 'btn-ghost btn-sm', text: 'Copy client_id', style: 'margin-top:6px', onclick: () => copy(app.appId) }),
+  ];
+  if (secret) {
+    children.push(
+      el('div', { class: 'muted', text: 'client_secret — save this now, it will not be shown again:', style: 'margin-top:14px' }),
+      el('div', { class: 'secret-box' }, [el('span', { text: secret })]),
+      el('button', { class: 'btn-ghost btn-sm', text: 'Copy client_secret', style: 'margin-top:6px', onclick: () => copy(secret) }),
+    );
+  }
+  children.push(
+    el('label', { text: 'Redirect URIs (one per line)', style: 'margin-top:14px' }), redirectUris,
+    el('button', { class: 'btn-ghost btn-sm', text: 'Save redirect URIs', style: 'margin-top:6px', onclick: saveRedirectUris }),
+    errEl,
+    el('div', { class: 'hint', text: 'PKCE (S256) is required on every authorization request.' }),
+    el('div', { class: 'modal-actions' }, [
+      el('div', { class: 'right' }, [el('button', { class: 'btn-primary', text: 'Done', onclick: closeModal })]),
+    ]),
+  );
+  openModal(children);
 }
 
 /**
