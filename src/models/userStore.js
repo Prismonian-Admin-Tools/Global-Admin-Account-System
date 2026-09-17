@@ -193,10 +193,19 @@ class UserStore {
       );
     }
 
+    // Mirrors the mutual-exclusion normalization in update() below: forcing
+    // a change (mustChange true) and forbidding the user from ever
+    // changing their own password are contradictory — without this, an
+    // admin/CLI reset with keepMustChangeFlag on an account that already
+    // has cannot_change_password set produces both flags true at once,
+    // which permanently locks that user out (forced into the change
+    // screen, but every change attempt 403s on cannot_change_password).
+    const mustChange = !clearMustChange;
     await this.pool.query(
-      `UPDATE passwords SET password_hash = $1, password_simhash = $2, must_change_password = $3, updated_at = now()
+      `UPDATE passwords SET password_hash = $1, password_simhash = $2, must_change_password = $3,
+         cannot_change_password = CASE WHEN $3 THEN false ELSE cannot_change_password END, updated_at = now()
        WHERE uid = $4`,
-      [passwords.hash(newPassword), simhash64(newPassword), !clearMustChange, uid]
+      [passwords.hash(newPassword), simhash64(newPassword), mustChange, uid]
     );
     await this.pool.query('DELETE FROM password_expiry_notices WHERE uid = $1', [uid]);
 
