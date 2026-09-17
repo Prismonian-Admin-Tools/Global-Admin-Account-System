@@ -10,22 +10,32 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Not authenticated' });
 }
 
-/** Gates a route on a single capability of the caller's rank (see rankStore.js for the list). */
-function requireCapability(rankStore, capability) {
+/**
+ * Gates a route on a single capability of the caller's CURRENT rank —
+ * re-fetched from the DB on every request rather than trusting
+ * req.session.user.role (cached at login), otherwise a user whose rank is
+ * changed, or whose rank's capabilities are edited, keeps acting on the
+ * old capability set for as long as their session cookie lives.
+ */
+function requireCapability(rankStore, userStore, capability) {
   return async (req, res, next) => {
     if (!req.session || !req.session.user) return res.status(401).json({ error: 'Not authenticated' });
-    const allowed = await rankStore.hasCapability(req.session.user.role, capability);
+    const user = await userStore.findByUid(req.session.user.uid);
+    if (!user || user.disabled) return res.status(401).json({ error: 'Not authenticated' });
+    const allowed = await rankStore.hasCapability(user.role, capability);
     if (!allowed) return res.status(403).json({ error: `This requires the "${capability}" capability` });
     next();
   };
 }
 
-/** Gates a route on ANY of several capabilities — for routes multiple ranks legitimately need (e.g. reading the rank list to populate a role picker). */
-function requireAnyCapability(rankStore, capabilities) {
+/** Gates a route on ANY of several capabilities — for routes multiple ranks legitimately need (e.g. reading the rank list to populate a role picker). Same fresh-role rule as requireCapability. */
+function requireAnyCapability(rankStore, userStore, capabilities) {
   return async (req, res, next) => {
     if (!req.session || !req.session.user) return res.status(401).json({ error: 'Not authenticated' });
+    const user = await userStore.findByUid(req.session.user.uid);
+    if (!user || user.disabled) return res.status(401).json({ error: 'Not authenticated' });
     for (const capability of capabilities) {
-      if (await rankStore.hasCapability(req.session.user.role, capability)) return next();
+      if (await rankStore.hasCapability(user.role, capability)) return next();
     }
     res.status(403).json({ error: `This requires one of: ${capabilities.join(', ')}` });
   };

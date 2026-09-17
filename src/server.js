@@ -126,18 +126,18 @@ async function main() {
    * routes carry their own requireAuth+requireCapability internally — see
    * routes/branding.js.
    * ========================================================= */
-  app.use('/api', brandingRoutes({ config, rankStore, siteSettingsStore, activityLog }));
+  app.use('/api', brandingRoutes({ config, rankStore, userStore, siteSettingsStore, activityLog }));
   app.use('/api', sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog, knownLoginStore, mailer }));
   app.use('/api', requireAuth);
   app.use('/api', requireGoodStanding(userStore));
   app.use('/api', accountRoutes({ config, userStore, passwordPolicyStore, sessionStore, activityLog }));
   app.use('/api', mfaRoutes({ userStore, mfaStore }));
-  app.use('/api', requireCapability(rankStore, 'manageUsers'), usersRoutes({ userStore, rankStore, sessionStore, activityLog }));
-  app.use('/api', ranksRoutes({ rankStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, caps) }));
-  app.use('/api', requireCapability(rankStore, 'manageApps'), appsRoutes({ appStore, userStore, activityLog }));
-  app.use('/api', requireCapability(rankStore, 'viewActivity'), activityRoutes({ activityLog, failedLoginStore }));
-  app.use('/api', requireCapability(rankStore, 'managePasswordPolicy'), passwordPolicyRoutes({ passwordPolicyStore, activityLog }));
-  app.use('/api', requireCapability(rankStore, 'manageEmail'), emailRoutes({ emailSettingsStore, mailer, userStore, activityLog }));
+  app.use('/api', requireCapability(rankStore, userStore, 'manageUsers'), usersRoutes({ userStore, rankStore, sessionStore, activityLog }));
+  app.use('/api', ranksRoutes({ rankStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, userStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, userStore, caps) }));
+  app.use('/api', requireCapability(rankStore, userStore, 'manageApps'), appsRoutes({ appStore, userStore, activityLog }));
+  app.use('/api', requireCapability(rankStore, userStore, 'viewActivity'), activityRoutes({ activityLog, failedLoginStore }));
+  app.use('/api', requireCapability(rankStore, userStore, 'managePasswordPolicy'), passwordPolicyRoutes({ passwordPolicyStore, activityLog }));
+  app.use('/api', requireCapability(rankStore, userStore, 'manageEmail'), emailRoutes({ emailSettingsStore, mailer, userStore, activityLog }));
 
   app.use('/avatars', express.static(config.avatars.directory));
   app.use('/branding', express.static(`${config.avatars.directory}/../branding`));
