@@ -8,7 +8,7 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
   function actorName(req) { return req.session.user.username; }
 
   router.get('/apps', async (req, res) => {
-    res.json(await appStore.list());
+    res.json(await appStore.list({ limit: req.query.limit, offset: req.query.offset }));
   });
 
   /** Returns the plaintext secret ONCE, at creation. It cannot be retrieved again — only regenerated. */

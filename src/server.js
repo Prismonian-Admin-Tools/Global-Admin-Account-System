@@ -41,6 +41,8 @@ const mfaRoutes = require('./routes/mfa');
 
 const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const OIDC_CODE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+const FAILED_LOGIN_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const FAILED_LOGIN_RETENTION_DAYS = 90;
 
 async function main() {
   const config = loadConfig();
@@ -80,6 +82,13 @@ async function main() {
   // Expired OIDC authorization codes are already unusable (consume()
   // checks expires_at) — this just keeps the table from growing forever.
   setInterval(() => oidcCodeStore.deleteExpired().catch((err) => console.error('OIDC code cleanup failed:', err.message)), OIDC_CODE_CLEANUP_INTERVAL_MS);
+
+  // failed_logins gets a row on every bad attempt from anyone, with no
+  // authentication at all — bounds how long those accumulate for.
+  setInterval(
+    () => failedLoginStore.deleteOlderThan(FAILED_LOGIN_RETENTION_DAYS).catch((err) => console.error('Failed-login cleanup failed:', err.message)),
+    FAILED_LOGIN_CLEANUP_INTERVAL_MS
+  );
 
   const app = express();
   // Trusting X-Forwarded-For unconditionally (this used to be a bare `1`)

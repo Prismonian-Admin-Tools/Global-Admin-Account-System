@@ -38,8 +38,15 @@ class AppStore {
     this.pool = pool;
   }
 
-  async list() {
-    const { rows } = await this.pool.query('SELECT * FROM apps ORDER BY name ASC');
+  // Same rationale as UserStore.list(): capped even with no explicit
+  // limit, so this can't grow into an unbounded query/payload as the
+  // number of registered apps grows.
+  async list({ limit = 500, offset = 0 } = {}) {
+    const cappedLimit = Math.min(Math.max(1, Number(limit) || 500), 500);
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const { rows } = await this.pool.query(
+      'SELECT * FROM apps ORDER BY name ASC LIMIT $1 OFFSET $2', [cappedLimit, safeOffset]
+    );
     return rows.map(toSafe);
   }
 

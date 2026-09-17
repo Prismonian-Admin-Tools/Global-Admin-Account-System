@@ -1,6 +1,6 @@
 'use strict';
 const express = require('express');
-const { toProfile } = require('../models/userStore');
+const { toProfile, toAppProfile, omitMfaEnabled } = require('../models/userStore');
 const { enforcePasswordPolicy } = require('../utils/enforcePasswordPolicy');
 
 function clientIp(req) {
@@ -77,7 +77,7 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
       await activityLog.add('auth', `${result.user.username} signed in from a new address (via ${req.callingApp.slug})`, result.user.uid, result.user.username);
     }
 
-    return res.json({ status: result.status, token, user: toProfile(result.user) });
+    return res.json({ status: result.status, token, user: toAppProfile(result.user) });
   });
 
   router.post('/validate', express.json(), async (req, res) => {
@@ -93,7 +93,7 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
       await sessionStore.revoke(token, req.callingApp.app_id);
       return res.json({ valid: false });
     }
-    return res.json({ valid: true, user: toProfile(user) });
+    return res.json({ valid: true, user: toAppProfile(user) });
   });
 
   router.post('/logout', express.json(), async (req, res) => {
@@ -150,7 +150,7 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
     await sessionStore.revokeAllForUser(uid);
     const newToken = await sessionStore.issue(uid, req.callingApp.app_id);
     await activityLog.add('account', `${user.username} changed their password (via ${req.callingApp.slug})`, uid, user.username);
-    res.json({ status: 'ok', token: newToken, user: profile });
+    res.json({ status: 'ok', token: newToken, user: omitMfaEnabled(profile) });
   });
 
   /**
@@ -184,7 +184,7 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
     if (theme !== undefined && ['ember', 'ocean', 'forest', 'light'].includes(theme)) updates.theme = theme;
 
     const profile = await userStore.update(uid, updates);
-    res.json({ status: 'ok', user: profile });
+    res.json({ status: 'ok', user: omitMfaEnabled(profile) });
   });
 
   return router;

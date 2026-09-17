@@ -35,6 +35,26 @@ function toProfile(row) {
   };
 }
 
+/**
+ * The profile shape handed to CALLING APPS — login/validate/change-
+ * password/update-profile — same as toProfile() minus mfaEnabled. MFA is
+ * dormant (see mfaStore.js): nothing at login actually checks it, and
+ * GAM's own frontend discloses that directly to the enrolling user, but a
+ * third-party app has no equivalent signal and could reasonably treat
+ * mfaEnabled: true as meaning the session was second-factor-verified.
+ * Omitted here rather than documented-only, so apps can't build on a
+ * signal that isn't real yet.
+ */
+function omitMfaEnabled(profile) {
+  if (!profile) return null;
+  const { mfaEnabled, ...rest } = profile;
+  return rest;
+}
+
+function toAppProfile(row) {
+  return omitMfaEnabled(toProfile(row));
+}
+
 function isPasswordExpired(row) {
   if (row.password_never_expires) return false;
   if (!row.password_expires_at) return false;
@@ -83,8 +103,16 @@ class UserStore {
     return rows[0] || null;
   }
 
-  async list() {
-    const { rows } = await this.pool.query(`${JOINED_SELECT} ORDER BY un.username ASC`);
+  // Capped even with no explicit limit — this had no bound at all before,
+  // an unbounded query and payload that only gets worse as the user count
+  // grows. 500 is generous for the admin Users tab's normal use; a caller
+  // that actually needs to page through more passes limit/offset itself.
+  async list({ limit = 500, offset = 0 } = {}) {
+    const cappedLimit = Math.min(Math.max(1, Number(limit) || 500), 500);
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const { rows } = await this.pool.query(
+      `${JOINED_SELECT} ORDER BY un.username ASC LIMIT $1 OFFSET $2`, [cappedLimit, safeOffset]
+    );
     return rows.map(toProfile);
   }
 
@@ -359,4 +387,4 @@ class UserStore {
   }
 }
 
-module.exports = { UserStore, toProfile, isPasswordExpired };
+module.exports = { UserStore, toProfile, toAppProfile, omitMfaEnabled, isPasswordExpired };

@@ -12,7 +12,7 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
   }
 
   router.get('/users', async (req, res) => {
-    res.json(await userStore.list());
+    res.json(await userStore.list({ limit: req.query.limit, offset: req.query.offset }));
   });
 
   router.get('/users/:uid', async (req, res) => {
