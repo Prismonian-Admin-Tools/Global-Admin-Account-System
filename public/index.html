@@ -79,6 +79,12 @@
   .card .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 22px; text-align: center; }
   label { display: block; font-size: 12px; font-weight: 600; color: var(--text-dim); margin: 14px 0 6px; letter-spacing: .01em; }
   input, select, textarea { width: 100%; background: var(--bg-alt); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 10px 11px; font-size: 14px; font-family: var(--sans); }
+  /* Checkboxes/radios have a fixed native size — the width:100% above
+     (meant for text/select/textarea fields) was stretching them across
+     the whole row instead, shoving their label text far off to the
+     right. Any checkbox not already inside a .checkline wrapper hit
+     this (rank/email/password-policy capability lists). */
+  input[type="checkbox"], input[type="radio"] { width: auto; padding: 0; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow); }
   button { cursor: pointer; border: none; border-radius: 7px; padding: 9px 15px; font-size: 13px; font-weight: 600; font-family: var(--sans); transition: transform .08s, background .15s, border-color .15s, color .15s; }
   button:active { transform: scale(0.97); }
@@ -118,15 +124,22 @@
   /* ---- stat cards ---- */
   .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 26px; }
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
-  .stat-card .num { font-size: 26px; font-weight: 800; color: var(--accent); line-height: 1.1; }
+  .stat-card .num { font-size: 26px; font-weight: 800; color: var(--accent); line-height: 1.1; overflow-wrap: anywhere; }
+  .stat-card .num.long-text { font-size: 18px; }
   .stat-card .label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 
   .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 18px; }
   .panel h3 { margin: 0 0 14px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
-  .panel h3 svg { width: 15px; height: 15px; color: var(--accent); }
+  .panel h3 svg, .modal h3 svg { width: 15px; height: 15px; color: var(--accent); flex-shrink: 0; }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+  /* An empty cell (a locked rank with no Edit/Delete buttons, say) has
+     zero content, so height: auto collapses it below its siblings on
+     the same row — min-height doesn't help here, table cells don't
+     reliably honor it when truly empty. A non-breaking space gives the
+     cell a real line box the same height as any other row's text. */
+  .row-actions:empty::after { content: "\00a0"; line-height: 27px; } /* ~= a .btn-sm's rendered height, so an actions-less row matches its siblings */
   th { color: var(--text-faint); font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.04em; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--surface-2); }
@@ -144,7 +157,7 @@
 
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 50; animation: fadein .12s ease; }
   .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; width: 440px; max-width: 92vw; max-height: 86vh; overflow-y: auto; }
-  .modal h3 { margin: 0 0 16px; font-size: 16px; }
+  .modal h3 { margin: 0 0 16px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
   .modal-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 20px; }
   .modal-actions .right { display: flex; gap: 8px; margin-left: auto; }
   .secret-box { font-family: var(--mono); background: var(--bg-alt); border: 1px solid var(--border); padding: 10px; border-radius: 7px; font-size: 12px; word-break: break-all; margin-top: 8px; color: var(--green); }
@@ -426,7 +439,7 @@ function render() {
   ]);
 
   const content = el('section', { class: 'content', id: 'content' });
-  app.appendChild(el('div', {}, [header, el('main', {}, [navEl, content])]));
+  app.appendChild(el('div', { style: 'display:flex;flex-direction:column;min-height:100vh' }, [header, el('main', {}, [navEl, content])]));
 
   if (state.view === 'dashboard') renderDashboard(content);
   if (state.view === 'account') renderAccount(content);
@@ -451,7 +464,7 @@ async function renderDashboard(content) {
 
   const cards = [
     el('div', { class: 'stat-card' }, [
-      el('div', { class: 'num', text: state.profile.role }),
+      el('div', { class: 'num' + (state.profile.role.length > 10 ? ' long-text' : ''), text: state.profile.role }),
       el('div', { class: 'label', text: 'Your role' }),
     ]),
     el('div', { class: 'stat-card' }, [
