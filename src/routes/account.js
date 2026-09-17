@@ -3,10 +3,12 @@ const express = require('express');
 const fs = require('fs');
 const multer = require('multer');
 const { verify: verifyPassword } = require('../utils/passwords');
+const { enforcePasswordPolicy } = require('../utils/enforcePasswordPolicy');
+const { matchesImageType } = require('../utils/imageSniff');
 
 const ALLOWED_AVATAR_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
-module.exports = function accountRoutes({ config, userStore, sessionStore, activityLog }) {
+module.exports = function accountRoutes({ config, userStore, passwordPolicyStore, sessionStore, activityLog }) {
   const router = express.Router();
   fs.mkdirSync(config.avatars.directory, { recursive: true });
 
@@ -49,7 +51,7 @@ module.exports = function accountRoutes({ config, userStore, sessionStore, activ
       const user = await userStore.findByUid(uid);
       if (!user) return res.status(404).json({ error: 'Account not found' });
       if (user.cannot_change_password) {
-        return res.status(403).json({ error: 'This account is not permitted to change its own password. Ask an owner to reset it.' });
+        return res.status(403).json({ error: 'This account is not permitted to change its own password. Ask a sysadmin to reset it.' });
       }
       const { currentPassword, newPassword, confirmPassword } = req.body || {};
       if (!newPassword || newPassword.length < 8) throw new Error('New password must be at least 8 characters');
@@ -58,6 +60,7 @@ module.exports = function accountRoutes({ config, userStore, sessionStore, activ
       if (!user.must_change_password) {
         if (!verifyPassword(currentPassword, user.password_hash)) throw new Error('Current password is incorrect');
       }
+      await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
       const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
       await activityLog.add('account', `${user.username} changed their password`, uid, user.username);
       res.json({ ok: true, profile });
@@ -70,6 +73,7 @@ module.exports = function accountRoutes({ config, userStore, sessionStore, activ
     try {
       const uid = myUid(req);
       if (!req.file) throw new Error('No file uploaded');
+      if (!matchesImageType(req.file.buffer, req.file.mimetype)) throw new Error('File content does not match its declared image type');
       const ext = ALLOWED_AVATAR_TYPES[req.file.mimetype];
       fs.writeFileSync(`${config.avatars.directory}/${uid}.${ext}`, req.file.buffer);
       const profile = await userStore.update(uid, { avatarExt: ext });
@@ -81,8 +85,8 @@ module.exports = function accountRoutes({ config, userStore, sessionStore, activ
 
   /**
    * "Active Sessions": every app currently holding a live token for this
-   * account (issued via /api/v1/login), not the GUS frontend's own
-   * cookie session — those are separate mechanisms entirely.
+   * account (issued via /api/v1/login), not GAM's own frontend cookie
+   * session — those are separate mechanisms entirely.
    */
   router.get('/account/sessions', async (req, res) => {
     res.json(await sessionStore.listForUser(myUid(req)));

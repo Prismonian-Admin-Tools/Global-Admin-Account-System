@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const { toProfile } = require('../models/userStore');
+const { enforcePasswordPolicy } = require('../utils/enforcePasswordPolicy');
 
 function clientIp(req) {
   return req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
@@ -8,18 +9,33 @@ function clientIp(req) {
 
 /**
  * The core external contract. Every response to /login is exactly one of
- * the four agreed statuses for a well-formed request from a known app —
- * plus 'invalid_request' / 'invalid_app' / 'rate_limited' for the cases
- * outside that contract (malformed body, bad app credentials, too many
- * attempts). Nothing else ever comes back from this endpoint.
+ * the agreed statuses for a well-formed request from a known app — 'good',
+ * 'good_change_pw', 'bad', 'disabled', or 'good-no-access' (valid
+ * credentials, but this app has blocked this user) — plus 'invalid_request'
+ * / 'invalid_app' / 'rate_limited' for the cases outside that contract
+ * (malformed body, bad app credentials, too many attempts). An app
+ * registered under a non-GAM auth method always gets 'bad' here, since
+ * this endpoint isn't the contract it's supposed to be using. Nothing else
+ * ever comes back from this endpoint.
  */
-module.exports = function apiV1Routes({ userStore, sessionStore, failedLoginStore, activityLog }) {
+module.exports = function apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer }) {
   const router = express.Router();
 
   router.post('/login', express.json(), async (req, res) => {
     const { username, password } = req.body || {};
     if (!username || typeof username !== 'string' || !password || typeof password !== 'string') {
       return res.status(400).json({ status: 'invalid_request', error: 'username and password are required strings' });
+    }
+
+    // This endpoint IS the GAM (username+password -> opaque token) contract.
+    // An app registered under any other auth method doesn't speak this
+    // contract at all — it should be authenticating via that protocol's
+    // own flow, not this one. Rather than reveal anything about why (a
+    // valid password, a pending forced change, an OAuth-only app all look
+    // identical to a caller here), every one of those cases collapses to
+    // the same generic 'bad' the wrong-password case already uses.
+    if (req.callingApp.auth_method !== 'gam') {
+      return res.json({ status: 'bad' });
     }
 
     const ip = clientIp(req);
@@ -42,10 +58,24 @@ module.exports = function apiV1Routes({ userStore, sessionStore, failedLoginStor
       return res.json({ status: result.status });
     }
 
-    // 'good' or 'good_change_pw'
+    // 'good' or 'good_change_pw' — but a sysadmin may have blocked this
+    // specific user from this specific app without disabling either one.
+    // Valid credentials, no token: the account is fine, this app just
+    // isn't open to it.
+    if (await appStore.isBlocked(req.callingApp.app_id, result.user.uid)) {
+      await activityLog.add('auth', `Blocked sign-in — "${username}" has no access to "${req.callingApp.slug}"`, result.user.uid, result.user.username);
+      return res.json({ status: 'good-no-access' });
+    }
+
     const token = await sessionStore.issue(result.user.uid, req.callingApp.app_id);
     await userStore.touchLogin(result.user.uid);
     await activityLog.add('auth', `${result.user.username} signed in via ${req.callingApp.slug}`, result.user.uid, result.user.username);
+
+    const isUnknownLogonPoint = await knownLoginStore.recordAndCheckUnknown(result.user.uid, ip);
+    if (isUnknownLogonPoint) {
+      await mailer.sendUnknownLogon(toProfile(result.user), { ip, appName: req.callingApp.name });
+      await activityLog.add('auth', `${result.user.username} signed in from a new address (via ${req.callingApp.slug})`, result.user.uid, result.user.username);
+    }
 
     return res.json({ status: result.status, token, user: toProfile(result.user) });
   });
@@ -59,7 +89,7 @@ module.exports = function apiV1Routes({ userStore, sessionStore, failedLoginStor
     if (!uid) return res.json({ valid: false });
 
     const user = await userStore.findByUid(uid);
-    if (!user || user.disabled) {
+    if (!user || user.disabled || (await appStore.isBlocked(req.callingApp.app_id, uid))) {
       await sessionStore.revoke(token, req.callingApp.app_id);
       return res.json({ valid: false });
     }
@@ -103,6 +133,12 @@ module.exports = function apiV1Routes({ userStore, sessionStore, failedLoginStor
       if (!verify(currentPassword, user.password_hash)) {
         return res.status(401).json({ status: 'invalid_request', error: 'Current password is incorrect' });
       }
+    }
+
+    try {
+      await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
+    } catch (err) {
+      return res.status(400).json({ status: 'invalid_request', error: err.message });
     }
 
     const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });

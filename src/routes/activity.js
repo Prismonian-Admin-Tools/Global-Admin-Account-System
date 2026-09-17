@@ -4,7 +4,13 @@ const express = require('express');
 function toCsv(rows, columns) {
   const esc = (v) => {
     if (v === null || v === undefined) return '';
-    const s = String(v);
+    let s = String(v);
+    // A field starting with =, +, -, or @ is a live formula to Excel/
+    // Sheets the moment this CSV is opened there — and app names, actor
+    // usernames, and free-text messages are all admin/user-controlled.
+    // Prefixing with a quote forces text interpretation without
+    // changing what a plain-text reader of the CSV sees.
+    if (/^[=+\-@]/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const header = columns.join(',');

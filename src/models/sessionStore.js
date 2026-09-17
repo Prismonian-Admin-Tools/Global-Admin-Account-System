@@ -53,6 +53,31 @@ class SessionStore {
     return session.uid;
   }
 
+  /**
+   * Validates a token WITHOUT already knowing which app it belongs to —
+   * used only by the OIDC /oidc/userinfo endpoint, whose whole point is
+   * that the caller presents nothing but the bearer token itself (no
+   * client credentials, per spec). Same expiry/TTL enforcement as
+   * validate(); returns { uid, appId } instead of just uid so the caller
+   * can confirm the token's app is still a legitimate OIDC client.
+   */
+  async validateAny(token) {
+    if (!token) return null;
+    const hash = tokens.fingerprint(token);
+    const { rows } = await this.pool.query('SELECT * FROM sessions WHERE token_hash = $1', [hash]);
+    const session = rows[0];
+    if (!session) return null;
+
+    const now = Date.now();
+    if (now > new Date(session.expires_at).getTime() || now > new Date(session.created_at).getTime() + this.absoluteTtlDays * 24 * 60 * 60 * 1000) {
+      await this.revoke(token, session.app_id);
+      return null;
+    }
+    const newExpiry = new Date(now + this.idleTimeoutMinutes * 60 * 1000);
+    await this.pool.query('UPDATE sessions SET last_seen_at = now(), expires_at = $1 WHERE token_hash = $2', [newExpiry, hash]);
+    return { uid: session.uid, appId: session.app_id };
+  }
+
   async revoke(token, appId) {
     const hash = tokens.fingerprint(token);
     await this.pool.query('DELETE FROM sessions WHERE token_hash = $1 AND app_id = $2', [hash, appId]);
@@ -76,7 +101,7 @@ class SessionStore {
     return rows;
   }
 
-  /** Revokes one specific session by its token_hash — scoped to a uid so a user can only ever kill their own sessions (unless the caller is an owner acting on someone else's, enforced at the route layer). */
+  /** Revokes one specific session by its token_hash — scoped to a uid so a user can only ever kill their own sessions (unless the caller has the manageUsers capability and is acting on someone else's, enforced at the route layer). */
   async revokeByHash(tokenHash, uid) {
     const { rowCount } = await this.pool.query(
       'DELETE FROM sessions WHERE token_hash = $1 AND uid = $2', [tokenHash, uid]
@@ -84,7 +109,7 @@ class SessionStore {
     return rowCount > 0;
   }
 
-  /** Used when an account is disabled/deleted/password-reset by an owner — kills every active session everywhere. */
+  /** Used when an account is disabled/deleted/password-reset by a sysadmin — kills every active session everywhere. */
   async revokeAllForUser(uid) {
     await this.pool.query('DELETE FROM sessions WHERE uid = $1', [uid]);
   }

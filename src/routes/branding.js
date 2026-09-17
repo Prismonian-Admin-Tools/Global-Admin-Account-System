@@ -2,22 +2,29 @@
 const express = require('express');
 const fs = require('fs');
 const multer = require('multer');
-const { requireAuth, requireOwner } = require('../middleware/frontendAuth');
+const { requireAuth, requireCapability } = require('../middleware/frontendAuth');
+const { matchesImageType } = require('../utils/imageSniff');
 
-const ALLOWED_LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+// SVG is deliberately excluded: it's served statically (see server.js's
+// /branding mount) with no auth at a fixed URL, and a browser that
+// navigates to an SVG directly will run any <script> embedded in it —
+// in-origin, with access to every authenticated API endpoint. Raster
+// formats only.
+const ALLOWED_LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
 /**
  * Mounted ONCE, early — before the global requireAuth chain — because the
  * GET needs to be reachable by a signed-out visitor (the login screen
  * shows the site name/logo before anyone's authenticated). The mutating
- * routes carry their OWN requireAuth+requireOwner right here, per-route,
+ * routes carry their OWN requireAuth+requireCapability right here, per-route,
  * rather than relying on being mounted after some later gate — that
  * pattern (a shared gate applied only via mount order) is exactly what
  * caused the tab-shadowing bug in Console; keeping each route
  * self-contained avoids the same class of mistake here.
  */
-module.exports = function brandingRoutes({ config, siteSettingsStore, activityLog }) {
+module.exports = function brandingRoutes({ config, rankStore, siteSettingsStore, activityLog }) {
   const router = express.Router();
+  const requireBrandingCapability = requireCapability(rankStore, 'manageBranding');
   const logoDir = `${config.avatars.directory}/../branding`;
   fs.mkdirSync(logoDir, { recursive: true });
 
@@ -25,7 +32,7 @@ module.exports = function brandingRoutes({ config, siteSettingsStore, activityLo
     storage: multer.memoryStorage(),
     limits: { fileSize: 1 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-      if (!ALLOWED_LOGO_TYPES[file.mimetype]) return cb(new Error('Only PNG, JPEG, WEBP, or SVG images are allowed'));
+      if (!ALLOWED_LOGO_TYPES[file.mimetype]) return cb(new Error('Only PNG, JPEG, or WEBP images are allowed'));
       cb(null, true);
     },
   });
@@ -34,7 +41,7 @@ module.exports = function brandingRoutes({ config, siteSettingsStore, activityLo
     res.json(await siteSettingsStore.get());
   });
 
-  router.put('/branding', requireAuth, requireOwner, express.json(), async (req, res) => {
+  router.put('/branding', requireAuth, requireBrandingCapability, express.json(), async (req, res) => {
     try {
       const { siteName } = req.body || {};
       const settings = await siteSettingsStore.update({ siteName });
@@ -46,9 +53,12 @@ module.exports = function brandingRoutes({ config, siteSettingsStore, activityLo
     }
   });
 
-  router.post('/branding/logo', requireAuth, requireOwner, upload.single('logo'), async (req, res) => {
+  router.post('/branding/logo', requireAuth, requireBrandingCapability, upload.single('logo'), async (req, res) => {
     try {
       if (!req.file) throw new Error('No file uploaded');
+      // fileFilter above only checked the client-supplied Content-Type,
+      // which the client controls — confirm the bytes actually match.
+      if (!matchesImageType(req.file.buffer, req.file.mimetype)) throw new Error('File content does not match its declared image type');
       const ext = ALLOWED_LOGO_TYPES[req.file.mimetype];
       fs.writeFileSync(`${logoDir}/logo.${ext}`, req.file.buffer);
       const settings = await siteSettingsStore.update({ logoExt: ext });
@@ -60,7 +70,7 @@ module.exports = function brandingRoutes({ config, siteSettingsStore, activityLo
     }
   });
 
-  router.delete('/branding/logo', requireAuth, requireOwner, async (req, res) => {
+  router.delete('/branding/logo', requireAuth, requireBrandingCapability, async (req, res) => {
     try {
       const current = await siteSettingsStore.get();
       if (current.logoExt) {

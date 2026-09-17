@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# GUS complete setup — installs Postgres (if missing), creates the gus
+# GAM complete setup — installs Postgres (if missing), creates the gus
 # database/user, writes config.yml, installs deps, runs migrations, creates
-# your owner account (you'll be prompted for username + password), registers
-# Console as an app, then starts GUS.
+# your sysadmin account (you'll be prompted for username + password),
+# registers Console as an app, then starts GAM.
 #
 # Run this FROM INSIDE the gus/ project directory:
 #   chmod +x setup-gus.sh
@@ -218,19 +218,19 @@ npm install --silent
 echo "==> Running database migrations..."
 npm run migrate
 
-# ---- 6. owner account — always prompted, no yes/no gate --------------------
+# ---- 6. sysadmin account — always prompted, no yes/no gate -----------------
 echo
-echo "==> Create your owner account."
-read -r -p "    Owner username: " OWNER_USERNAME
-while [ -z "$OWNER_USERNAME" ]; do
-  read -r -p "    Username can't be blank. Owner username: " OWNER_USERNAME
+echo "==> Create your sysadmin account."
+read -r -p "    Sysadmin username: " SYSADMIN_USERNAME
+while [ -z "$SYSADMIN_USERNAME" ]; do
+  read -r -p "    Username can't be blank. Sysadmin username: " SYSADMIN_USERNAME
 done
 
-OWNER_PASSWORD=""
-while [ "${#OWNER_PASSWORD}" -lt 8 ]; do
-  read -r -s -p "    Temporary password (min 8 characters, you'll be forced to change it on first login): " OWNER_PASSWORD
+SYSADMIN_PASSWORD=""
+while [ "${#SYSADMIN_PASSWORD}" -lt 8 ]; do
+  read -r -s -p "    Temporary password (min 8 characters, you'll be forced to change it on first login): " SYSADMIN_PASSWORD
   echo
-  if [ "${#OWNER_PASSWORD}" -lt 8 ]; then
+  if [ "${#SYSADMIN_PASSWORD}" -lt 8 ]; then
     echo "    Too short — needs to be at least 8 characters."
   fi
 done
@@ -239,8 +239,8 @@ read -r -p "    App slug to register alongside this account [console]: " APP_SLU
 APP_SLUG="${APP_SLUG:-console}"
 
 echo
-if npm run bootstrap -- --username "$OWNER_USERNAME" --password "$OWNER_PASSWORD" --app "$APP_SLUG"; then
-  echo "==> Owner account created. If an app secret was printed above, copy it into that app's config now — it will not be shown again."
+if npm run bootstrap -- --username "$SYSADMIN_USERNAME" --password "$SYSADMIN_PASSWORD" --app "$APP_SLUG"; then
+  echo "==> Sysadmin account created. If an app secret was printed above, copy it into that app's config now — it will not be shown again."
 else
   echo "==> Bootstrap step failed or was already done (e.g. that username/app already exists)." >&2
   echo "    Continuing on to start the server anyway." >&2
@@ -248,5 +248,5 @@ fi
 
 # ---- 7. start the server ----------------------------------------------------
 echo
-echo "==> Starting GUS..."
+echo "==> Starting GAM..."
 npm start

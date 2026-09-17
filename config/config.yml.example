@@ -1,16 +1,25 @@
 # =============================================================================
-# GUS (Global User System) — configuration
+# GAM (Global Admin Account System, formerly GUS) — configuration
 # =============================================================================
 
 server:
   bind: "127.0.0.1"
   port: 9200
-  # Signs the GUS's OWN frontend session cookie (used when a person logs
+  # Signs GAM's OWN frontend session cookie (used when a person logs
   # into auth.prismonian.com directly). Unrelated to the opaque app tokens
   # issued to client apps — change this to something random.
   sessionSecret: "CHANGE_ME_TO_A_RANDOM_STRING"
   # Public base URL, used for building absolute avatar links.
   publicUrl: "https://auth.prismonian.com"
+  # Whether (and how much) to trust X-Forwarded-For for the caller's real
+  # IP — used for login-lockout and rate-limiting. Leave `false` (the
+  # default) unless GAM sits behind a reverse proxy that OVERWRITES this
+  # header before forwarding (nginx/Caddy/etc. do this by default).
+  # Trusting it with nothing in front means any caller can set their own
+  # req.ip per request just by sending the header, defeating the login
+  # lockout entirely. If you do run behind such a proxy, set this to the
+  # number of proxy hops between the internet and GAM (usually 1).
+  trustProxy: false
 
 database:
   host: "127.0.0.1"
@@ -27,7 +36,7 @@ avatars:
 # change on first login, no exceptions.
 newAccountDefaults:
   mustChangePassword: true
-  role: "moderator"
+  role: "staff"
 
 session:
   # How long an app-issued opaque token stays valid without being used.
