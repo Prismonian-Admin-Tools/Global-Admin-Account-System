@@ -32,22 +32,27 @@ function toProfile(row) {
     // Dormant — see src/models/mfaStore.js. Exposed so admins can see
     // who's enrolled; nothing at login checks this yet.
     mfaEnabled: row.mfa_enabled,
+    // See migration 009 — cleared together with mustChangePassword once
+    // the new-hire onboarding wizard is completed (PUT /account/onboarding).
+    needsOnboarding: row.needs_onboarding,
   };
 }
 
 /**
  * The profile shape handed to CALLING APPS — login/validate/change-
- * password/update-profile — same as toProfile() minus mfaEnabled. MFA is
- * dormant (see mfaStore.js): nothing at login actually checks it, and
- * GAM's own frontend discloses that directly to the enrolling user, but a
- * third-party app has no equivalent signal and could reasonably treat
- * mfaEnabled: true as meaning the session was second-factor-verified.
- * Omitted here rather than documented-only, so apps can't build on a
- * signal that isn't real yet.
+ * password/update-profile — same as toProfile() minus mfaEnabled and
+ * needsOnboarding. MFA is dormant (see mfaStore.js): nothing at login
+ * actually checks it, and GAM's own frontend discloses that directly to
+ * the enrolling user, but a third-party app has no equivalent signal and
+ * could reasonably treat mfaEnabled: true as meaning the session was
+ * second-factor-verified. needsOnboarding is purely a GAM-frontend
+ * concept (name/avatar/password wizard, see migration 009) with no
+ * documented meaning for a consuming app. Both omitted here rather than
+ * documented-only, so apps can't build on a signal that isn't theirs.
  */
 function omitMfaEnabled(profile) {
   if (!profile) return null;
-  const { mfaEnabled, ...rest } = profile;
+  const { mfaEnabled, needsOnboarding, ...rest } = profile;
   return rest;
 }
 
@@ -73,7 +78,7 @@ const JOINED_SELECT = `
          p.password_hash, p.password_simhash, p.must_change_password, p.cannot_change_password,
          p.password_never_expires, p.password_expires_at, p.mfa_enabled,
          d.role, d.full_name, d.description, d.email, d.disabled, d.theme, d.avatar_ext, d.last_login,
-         d.updated_at
+         d.needs_onboarding, d.updated_at
   FROM users u
   JOIN usernames un ON un.uid = u.uid
   JOIN passwords p ON p.uid = u.uid
@@ -141,7 +146,14 @@ class UserStore {
     return { status, user };
   }
 
-  /** New accounts always start forced to change their password — no flag to opt out of this. Writes span three tables, so it's one transaction. */
+  /**
+   * New accounts always start forced to change their password and routed
+   * through the onboarding wizard — no flag to opt out of this — with one
+   * hardcoded exception: trustedInstaller accounts belong to an install
+   * engineer, not a new hire, and are provisioned with a password IT
+   * already intends to keep using, so they skip both. Writes span three
+   * tables, so it's one transaction.
+   */
   async create({ username, password, role, fullName, description, email }) {
     if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
     if (!username || !username.trim()) throw new Error('Username is required');
@@ -149,6 +161,8 @@ class UserStore {
 
     const existing = await this.findByUsername(username);
     if (existing) throw new Error('A user with that username already exists');
+
+    const skipOnboarding = role === 'trustedInstaller';
 
     const client = await this.pool.connect();
     let uid;
@@ -158,12 +172,12 @@ class UserStore {
       uid = rows[0].uid;
       await client.query('INSERT INTO usernames (uid, username) VALUES ($1, $2)', [uid, username.trim()]);
       await client.query(
-        'INSERT INTO passwords (uid, password_hash, password_simhash, must_change_password) VALUES ($1, $2, $3, true)',
-        [uid, passwords.hash(password), simhash64(password)]
+        'INSERT INTO passwords (uid, password_hash, password_simhash, must_change_password) VALUES ($1, $2, $3, $4)',
+        [uid, passwords.hash(password), simhash64(password), !skipOnboarding]
       );
       await client.query(
-        'INSERT INTO userdata (uid, role, full_name, description, email) VALUES ($1, $2, $3, $4, $5)',
-        [uid, role, fullName || '', description || '', email || null]
+        'INSERT INTO userdata (uid, role, full_name, description, email, needs_onboarding) VALUES ($1, $2, $3, $4, $5, $6)',
+        [uid, role, fullName || '', description || '', email || null, !skipOnboarding]
       );
       await client.query('COMMIT');
     } catch (err) {
@@ -280,6 +294,7 @@ class UserStore {
     const userdataEditable = {
       fullName: 'full_name', description: 'description', theme: 'theme',
       email: 'email', disabled: 'disabled', avatarExt: 'avatar_ext',
+      needsOnboarding: 'needs_onboarding',
     };
     const passwordEditable = {
       mustChangePassword: 'must_change_password', cannotChangePassword: 'cannot_change_password',

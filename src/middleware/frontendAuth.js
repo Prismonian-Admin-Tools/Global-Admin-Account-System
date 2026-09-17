@@ -44,10 +44,16 @@ function requireAnyCapability(rankStore, userStore, capabilities) {
 /**
  * Kills the session outright if the account was disabled mid-session, and
  * blocks every route except a small allowlist while a forced password
- * change is pending — mirrors the old panel's requireGoodStanding.
+ * change or the new-hire onboarding wizard is pending — mirrors the old
+ * panel's requireGoodStanding. /account/onboarding and /account/avatar
+ * are only reachable at all because of this allowlist — that's how a
+ * brand-new account can submit the wizard, or pick a picture beforehand,
+ * without yet having a usable password.
  */
 function requireGoodStanding(userStore) {
-  const ALLOWED_WHILE_CHANGE_REQUIRED = new Set(['/session', '/logout', '/account/password', '/account']);
+  const ALLOWED_WHILE_CHANGE_REQUIRED = new Set([
+    '/session', '/logout', '/account/password', '/account', '/account/onboarding', '/account/avatar',
+  ]);
   return async (req, res, next) => {
     if (!req.session || !req.session.user) return next();
     const user = await userStore.findByUid(req.session.user.uid);
@@ -58,8 +64,10 @@ function requireGoodStanding(userStore) {
       return req.session.destroy(() => res.status(403).json({ error: 'This account has been disabled.' }));
     }
     const needsChange = !!user.must_change_password;
-    if (needsChange && !ALLOWED_WHILE_CHANGE_REQUIRED.has(req.path)) {
-      return res.status(428).json({ error: 'A password change is required before continuing.', requirePasswordChange: true });
+    const needsOnboarding = !!user.needs_onboarding;
+    if ((needsChange || needsOnboarding) && !ALLOWED_WHILE_CHANGE_REQUIRED.has(req.path)) {
+      const error = needsOnboarding ? 'Onboarding must be completed before continuing.' : 'A password change is required before continuing.';
+      return res.status(428).json({ error, requirePasswordChange: needsChange, onboardingRequired: needsOnboarding });
     }
     next();
   };

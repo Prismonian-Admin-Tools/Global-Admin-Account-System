@@ -76,6 +76,45 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
     }
   });
 
+  /**
+   * The new-hire onboarding wizard — one-time, gated by requireGoodStanding
+   * on needs_onboarding the same way /account/password is gated on
+   * must_change_password (see middleware/frontendAuth.js). Only fills in
+   * fullName/email if IT left them blank at creation — this endpoint can
+   * never overwrite a value an admin already set. The password fields are
+   * only required (and only actually change anything) if the account still
+   * has must_change_password set, matching every other account creation.
+   */
+  router.put('/account/onboarding', express.json(), async (req, res) => {
+    try {
+      const uid = myUid(req);
+      const user = await userStore.findByUid(uid);
+      if (!user) return res.status(404).json({ error: 'Account not found' });
+      if (!user.needs_onboarding) {
+        return res.status(400).json({ error: 'Onboarding has already been completed for this account.' });
+      }
+
+      const { newPassword, confirmPassword, fullName, email } = req.body || {};
+      if (user.must_change_password) {
+        if (!newPassword || newPassword.length < 8) throw new Error('New password must be at least 8 characters');
+        if (newPassword !== confirmPassword) throw new Error('New password and confirmation do not match');
+        await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
+        await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
+      }
+
+      const updates = { needsOnboarding: false };
+      if (!user.full_name && fullName) updates.fullName = String(fullName).slice(0, 100);
+      if (!user.email && email) updates.email = email;
+      await userStore.update(uid, updates);
+
+      await sessionStore.revokeAllForUser(uid);
+      await activityLog.add('account', `${user.username} completed onboarding`, uid, user.username);
+      res.json({ ok: true, profile: await userStore.getProfile(uid) });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   router.post('/account/avatar', upload.single('avatar'), async (req, res) => {
     try {
       const uid = myUid(req);

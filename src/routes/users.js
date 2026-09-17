@@ -74,7 +74,7 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
       }
 
       const rest = {};
-      ['fullName', 'description', 'email', 'theme', 'disabled', 'mustChangePassword', 'cannotChangePassword', 'passwordNeverExpires', 'passwordExpiresAt'].forEach((k) => {
+      ['fullName', 'description', 'email', 'theme', 'disabled', 'mustChangePassword', 'cannotChangePassword', 'passwordNeverExpires', 'passwordExpiresAt', 'needsOnboarding'].forEach((k) => {
         if (Object.prototype.hasOwnProperty.call(body, k)) rest[k] = body[k];
       });
       if (Object.keys(rest).length) await userStore.update(req.params.uid, rest);

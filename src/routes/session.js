@@ -51,7 +51,12 @@ module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore
       await activityLog.add('auth', `${result.user.username} signed in to GAM from a new address`, result.user.uid, result.user.username);
     }
 
-    res.json({ ok: true, profile: await withCapabilities(toProfile(result.user)), requirePasswordChange: result.status === 'good_change_pw' });
+    res.json({
+      ok: true,
+      profile: await withCapabilities(toProfile(result.user)),
+      requirePasswordChange: result.status === 'good_change_pw',
+      onboardingRequired: !!result.user.needs_onboarding,
+    });
   });
 
   router.post('/session/logout', (req, res) => {
@@ -62,7 +67,11 @@ module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore
     if (!req.session || !req.session.user) return res.status(401).json({ error: 'Not authenticated' });
     const user = await userStore.findByUid(req.session.user.uid);
     if (!user) return req.session.destroy(() => res.status(401).json({ error: 'Account no longer exists' }));
-    res.json({ profile: await withCapabilities(toProfile(user)), requirePasswordChange: !!user.must_change_password });
+    res.json({
+      profile: await withCapabilities(toProfile(user)),
+      requirePasswordChange: !!user.must_change_password,
+      onboardingRequired: !!user.needs_onboarding,
+    });
   }));
 
   return router;

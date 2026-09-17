@@ -348,9 +348,10 @@ async function boot() {
   } catch (e) { /* fall back to default GAM branding */ }
   document.title = `${state.branding.siteName} — Global Admin Account System`;
   try {
-    const { profile, requirePasswordChange } = await api('/session');
+    const { profile, requirePasswordChange, onboardingRequired } = await api('/session');
     state.profile = profile;
     applyTheme(profile.theme);
+    if (onboardingRequired) return renderOnboarding();
     if (requirePasswordChange) return renderForceChange();
     if (continueIfNeeded()) return;
     render();
@@ -370,11 +371,12 @@ function renderLogin() {
   async function submit() {
     errEl.textContent = '';
     try {
-      const { profile, requirePasswordChange } = await api('/session/login', {
+      const { profile, requirePasswordChange, onboardingRequired } = await api('/session/login', {
         method: 'POST', body: { username: username.value, password: password.value },
       });
       state.profile = profile;
       applyTheme(profile.theme);
+      if (onboardingRequired) return renderOnboarding();
       if (requirePasswordChange) return renderForceChange();
       if (continueIfNeeded()) return;
       render();
@@ -420,6 +422,69 @@ function renderForceChange() {
     errEl,
     el('button', { class: 'btn-primary btn-block', text: 'Update password', onclick: submit }),
   ]);
+  app.appendChild(el('div', { class: 'center-screen' }, [form]));
+}
+
+/* ---------------- new-hire onboarding wizard ---------------- */
+function renderOnboarding() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const profile = state.profile;
+  const errEl = el('div', { class: 'err' });
+
+  const fields = [
+    brandmark(),
+    el('div', { class: 'sub', text: `Welcome, ${profile.username}! A few things before you get started.` }),
+  ];
+
+  let avatarFile = null;
+  const fileInput = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', style: 'display:none' });
+  fileInput.addEventListener('change', () => { avatarFile = fileInput.files[0] || null; });
+  const avatarEl = avatarNode(profile, 'big');
+  avatarEl.addEventListener('click', () => fileInput.click());
+  fields.push(el('div', { class: 'avatar-big-wrap' }, [avatarEl, fileInput, el('div', {}, [
+    el('div', { style: 'font-weight:700;font-size:15px', text: 'Profile picture (optional)' }),
+    el('div', { class: 'muted', text: 'Click to choose one — PNG, JPEG, or WEBP, up to 2MB. You can always set this later.' }),
+  ])]));
+
+  const fullName = el('input', { type: 'text', placeholder: 'Your name' });
+  const needsFullName = !profile.fullName;
+  if (needsFullName) fields.push(el('label', { text: 'Full name' }), fullName);
+
+  const email = el('input', { type: 'email', placeholder: 'you@example.com' });
+  const needsEmail = !profile.email;
+  if (needsEmail) fields.push(el('label', { text: 'Email' }), email);
+
+  const pw1 = el('input', { type: 'password', placeholder: 'At least 8 characters' });
+  const pw2 = el('input', { type: 'password', placeholder: 'Repeat it' });
+  fields.push(
+    el('div', { class: 'divider' }),
+    el('label', { text: 'Choose a new password' }), pw1,
+    el('label', { text: 'Confirm new password' }), pw2,
+  );
+
+  async function submit() {
+    errEl.textContent = '';
+    try {
+      if (avatarFile) {
+        const fd = new FormData();
+        fd.append('avatar', avatarFile);
+        await api('/account/avatar', { method: 'POST', body: fd });
+      }
+      const body = { newPassword: pw1.value, confirmPassword: pw2.value };
+      if (needsFullName && fullName.value) body.fullName = fullName.value;
+      if (needsEmail && email.value) body.email = email.value;
+      const { profile: updated } = await api('/account/onboarding', { method: 'PUT', body });
+      state.profile = updated;
+      toast('Welcome aboard!', 'ok');
+      if (continueIfNeeded()) return;
+      render();
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  fields.push(errEl, el('button', { class: 'btn-primary btn-block', text: 'Finish setup', style: 'margin-top:10px', onclick: submit }));
+
+  const form = el('div', { class: 'card' }, fields);
   app.appendChild(el('div', { class: 'center-screen' }, [form]));
 }
 
@@ -867,7 +932,8 @@ function rankLabel(name) {
 function userRow(u) {
   const roleBadge = el('span', { class: 'badge ' + u.role, text: rankLabel(u.role) });
   const statusBadge = u.disabled ? el('span', { class: 'badge disabled', text: 'disabled' })
-    : (u.mustChangePassword ? el('span', { class: 'badge warn', text: 'must change pw' }) : el('span', { class: 'badge ok', text: 'active' }));
+    : (u.needsOnboarding ? el('span', { class: 'badge warn', text: 'onboarding pending' })
+      : (u.mustChangePassword ? el('span', { class: 'badge warn', text: 'must change pw' }) : el('span', { class: 'badge ok', text: 'active' })));
   const editBtn = el('button', { class: 'btn-ghost btn-sm', text: 'Manage', onclick: () => openManageUserModal(u) });
   return el('tr', {}, [
     el('td', {}, [el('div', { class: 'name-cell' }, [avatarNode(u, 'small'), el('span', { text: u.username })])]),
@@ -1141,6 +1207,8 @@ function openManageUserModal(u) {
   const description = el('textarea', { rows: '2' }); description.value = u.description || '';
   const disabled = el('input', { type: 'checkbox' }); disabled.checked = u.disabled;
 
+  const needsOnboarding = el('input', { type: 'checkbox' }); needsOnboarding.checked = !!u.needsOnboarding;
+
   const mustChange = el('input', { type: 'checkbox' }); mustChange.checked = !!u.mustChangePassword;
   const cannotChange = el('input', { type: 'checkbox' }); cannotChange.checked = !!u.cannotChangePassword;
   mustChange.addEventListener('change', () => { if (mustChange.checked) cannotChange.checked = false; });
@@ -1181,6 +1249,7 @@ function openManageUserModal(u) {
         mustChangePassword: mustChange.checked, cannotChangePassword: cannotChange.checked,
         passwordNeverExpires: neverExpires.checked,
         passwordExpiresAt: neverExpires.checked ? null : (expiresAt.value ? new Date(expiresAt.value).toISOString() : null),
+        needsOnboarding: needsOnboarding.checked,
       };
       if (newPw.value) { body.password = newPw.value; body.confirmPassword = confirmNewPw.value; }
       await api('/users/' + u.uid, { method: 'PATCH', body });
@@ -1208,6 +1277,9 @@ function openManageUserModal(u) {
     el('label', { text: 'Email' }), email,
     el('label', { text: 'Description' }), description,
     el('div', { class: 'checkline' }, [disabled, el('span', { text: 'Account disabled' })]),
+
+    el('div', { class: 'divider' }),
+    el('div', { class: 'checkline' }, [needsOnboarding, el('span', { text: 'Send through the onboarding wizard on next login' })]),
 
     el('div', { class: 'divider' }),
     el('div', { class: 'muted', text: 'PASSWORD POLICY' }),
