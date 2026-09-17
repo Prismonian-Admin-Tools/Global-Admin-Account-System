@@ -146,7 +146,17 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
     res.json({ status: 'ok', user: profile });
   });
 
-  /** Self-service profile update (fullName/description/theme) for the logged-in app user. */
+  /**
+   * Self-service profile update (fullName/description/theme) for the
+   * logged-in app user. Blocked while a password change is pending —
+   * mirrors GAM's own frontend, which blocks every route except a small
+   * allowlist (see requireGoodStanding) until that's resolved. Unlike
+   * /validate (whose whole job is to hand the calling app the raw status,
+   * including mustChangePassword, so IT can decide what "continuing"
+   * means in its own UI), there's no equivalent reason for this endpoint
+   * to let an app change unrelated profile fields before the account is
+   * back in good standing.
+   */
   router.post('/update-profile', express.json(), async (req, res) => {
     const { token, fullName, description, theme } = req.body || {};
     if (!token || typeof token !== 'string') {
@@ -154,6 +164,12 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
     }
     const uid = await sessionStore.validate(token, req.callingApp.app_id);
     if (!uid) return res.status(401).json({ status: 'invalid_token' });
+
+    const user = await userStore.findByUid(uid);
+    if (!user) return res.status(401).json({ status: 'invalid_token' });
+    if (user.must_change_password) {
+      return res.status(403).json({ status: 'forbidden', error: 'A password change is required before updating your profile.' });
+    }
 
     const updates = {};
     if (fullName !== undefined) updates.fullName = String(fullName).slice(0, 100);
