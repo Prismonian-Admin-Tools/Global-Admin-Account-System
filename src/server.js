@@ -23,6 +23,7 @@ const { runPasswordExpirySweep } = require('./jobs/passwordExpirySweep');
 
 const { requireApp } = require('./middleware/appAuth');
 const { perAppRateLimit } = require('./middleware/rateLimit');
+const { securityHeaders } = require('./middleware/securityHeaders');
 const { requireAuth, requireCapability, requireAnyCapability, requireGoodStanding } = require('./middleware/frontendAuth');
 
 const apiV1Routes = require('./routes/apiV1');
@@ -89,6 +90,7 @@ async function main() {
   // (nginx, Caddy, etc. all do) should set server.trustProxy in
   // config.yml to how many proxy hops to trust — see the example file.
   app.set('trust proxy', config.server.trustProxy ?? false);
+  app.use(securityHeaders());
   app.use(express.json());
   app.use(session({
     secret: config.server.sessionSecret,
