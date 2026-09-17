@@ -142,8 +142,15 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
     }
 
     const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
+    // Kills every token this account holds, across every app — including
+    // the one just used for this request — so a stolen token doesn't
+    // survive the one recovery action a compromised user can take on
+    // their own. Immediately issues a fresh one for THIS app so the
+    // caller doesn't have to round-trip through /login to keep going.
+    await sessionStore.revokeAllForUser(uid);
+    const newToken = await sessionStore.issue(uid, req.callingApp.app_id);
     await activityLog.add('account', `${user.username} changed their password (via ${req.callingApp.slug})`, uid, user.username);
-    res.json({ status: 'ok', user: profile });
+    res.json({ status: 'ok', token: newToken, user: profile });
   });
 
   /**

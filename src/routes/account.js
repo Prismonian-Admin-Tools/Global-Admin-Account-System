@@ -62,6 +62,12 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
       }
       await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
       const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
+      // Kills any tokens this account holds in OTHER apps (issued via
+      // /api/v1/login) — not this GAM frontend cookie session, a separate
+      // mechanism sessionStore doesn't touch. Otherwise a stolen app
+      // token survives the one recovery action a compromised user can
+      // take on their own.
+      await sessionStore.revokeAllForUser(uid);
       await activityLog.add('account', `${user.username} changed their password`, uid, user.username);
       res.json({ ok: true, profile });
     } catch (err) {
