@@ -38,7 +38,7 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
       const updates = {};
       if (fullName !== undefined) updates.fullName = String(fullName).slice(0, 100);
       if (description !== undefined) updates.description = String(description).slice(0, 300);
-      if (theme !== undefined && ['ember', 'ocean', 'forest', 'light'].includes(theme)) updates.theme = theme;
+      if (theme !== undefined && ['ember', 'ocean', 'forest', 'light', 'sharp'].includes(theme)) updates.theme = theme;
       const profile = await userStore.update(myUid(req), updates);
       res.json({ ok: true, profile });
     } catch (err) {

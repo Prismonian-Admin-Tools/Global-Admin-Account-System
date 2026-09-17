@@ -44,6 +44,16 @@
     --accent: #d4661f; --accent-dim: #b4551a; --accent-glow: rgba(212,102,31,0.16);
     --green: #327140; --red: #b33a32; --yellow: #93690a; --blue: #285d87;
   }
+  /* ---- sharp: pure black/white, maximum border-vs-surface contrast —
+     the opposite end of the spectrum from ember's low-contrast look
+     above, for anyone who wants edges over ambience. ---- */
+  [data-theme="sharp"] {
+    --bg: #000000; --bg-alt: #0a0a0a; --surface: #000000; --surface-2: #111111;
+    --border: #ffffff; --border-soft: #666666;
+    --text: #ffffff; --text-dim: #cccccc; --text-faint: #999999;
+    --accent: #00e5ff; --accent-dim: #00b8cc; --accent-glow: rgba(0,229,255,0.25);
+    --green: #00ff85; --red: #ff3b3b; --yellow: #ffe135; --blue: #00e5ff;
+  }
 
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); transition: background .2s, color .2s; }
@@ -181,6 +191,7 @@
   .swatch.ocean { background: linear-gradient(135deg, #5fc4f5, #070f18); }
   .swatch.forest { background: linear-gradient(135deg, #7fe08b, #0a1209); }
   .swatch.light { background: linear-gradient(135deg, #d4661f, #eeebe4); }
+  .swatch.sharp { background: linear-gradient(135deg, #00e5ff, #000000); }
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px; }
   .detail-grid .k { color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
   .detail-grid .v { color: var(--text); font-family: var(--mono); font-size: 12px; word-break: break-all; }
@@ -249,7 +260,7 @@ async function api(path, opts = {}) {
 }
 
 function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme && ['ember','ocean','forest','light'].includes(theme) ? theme : 'ember');
+  document.documentElement.setAttribute('data-theme', theme && ['ember','ocean','forest','light','sharp'].includes(theme) ? theme : 'ember');
 }
 
 function toast(msg, kind) {
@@ -667,7 +678,7 @@ async function renderAccount(content) {
     } catch (e) { toast(e.message, 'err'); }
   }
 
-  const swatches = ['ember', 'ocean', 'forest', 'light'].map((t) => {
+  const swatches = ['ember', 'ocean', 'forest', 'light', 'sharp'].map((t) => {
     const sw = el('div', { class: 'swatch ' + t + (profile.theme === t ? ' selected' : '') });
     sw.addEventListener('click', async () => {
       applyTheme(t);
