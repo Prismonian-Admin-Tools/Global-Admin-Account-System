@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 function toCsv(rows, columns) {
   const esc = (v) => {
@@ -31,25 +32,25 @@ module.exports = function activityRoutes({ activityLog, failedLoginStore }) {
     };
   }
 
-  router.get('/activity', async (req, res) => {
+  router.get('/activity', asyncHandler(async (req, res) => {
     res.json(await activityLog.list(parseFilters(req)));
-  });
+  }));
 
-  router.get('/activity/categories', async (req, res) => {
+  router.get('/activity/categories', asyncHandler(async (req, res) => {
     res.json(await activityLog.categories());
-  });
+  }));
 
-  router.get('/activity/export', async (req, res) => {
+  router.get('/activity/export', asyncHandler(async (req, res) => {
     const rows = await activityLog.list({ ...parseFilters(req), limit: 5000 });
     const csv = toCsv(rows, ['created_at', 'category', 'actor_username', 'message']);
     res.set('Content-Type', 'text/csv');
     res.set('Content-Disposition', `attachment; filename="gus-activity-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(csv);
-  });
+  }));
 
-  router.get('/failed-logins', async (req, res) => {
+  router.get('/failed-logins', asyncHandler(async (req, res) => {
     res.json(await failedLoginStore.list(50));
-  });
+  }));
 
   return router;
 };

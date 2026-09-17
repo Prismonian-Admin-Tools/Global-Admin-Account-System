@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
   const router = express.Router();
@@ -7,9 +8,9 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
   function actor(req) { return req.session.user.uid; }
   function actorName(req) { return req.session.user.username; }
 
-  router.get('/apps', async (req, res) => {
+  router.get('/apps', asyncHandler(async (req, res) => {
     res.json(await appStore.list({ limit: req.query.limit, offset: req.query.offset }));
-  });
+  }));
 
   /** Returns the plaintext secret ONCE, at creation. It cannot be retrieved again — only regenerated. */
   router.post('/apps', express.json(), async (req, res) => {
@@ -44,7 +45,7 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
   });
 
   /** Users a sysadmin has explicitly blocked from this one app (see app_access in migration 003). */
-  router.get('/apps/:appId/access', async (req, res) => {
+  router.get('/apps/:appId/access', asyncHandler(async (req, res) => {
     const blockedUids = await appStore.listBlockedUids(req.params.appId);
     const blocked = [];
     for (const uid of blockedUids) {
@@ -52,7 +53,7 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
       if (profile) blocked.push({ uid: profile.uid, username: profile.username });
     }
     res.json({ blocked });
-  });
+  }));
 
   router.post('/apps/:appId/access/:uid/block', async (req, res) => {
     try {

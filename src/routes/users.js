@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 module.exports = function usersRoutes({ userStore, rankStore, sessionStore, activityLog }) {
   const router = express.Router();
@@ -11,15 +12,15 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
     return req.session.user.username;
   }
 
-  router.get('/users', async (req, res) => {
+  router.get('/users', asyncHandler(async (req, res) => {
     res.json(await userStore.list({ limit: req.query.limit, offset: req.query.offset }));
-  });
+  }));
 
-  router.get('/users/:uid', async (req, res) => {
+  router.get('/users/:uid', asyncHandler(async (req, res) => {
     const profile = await userStore.getProfile(req.params.uid);
     if (!profile) return res.status(404).json({ error: 'No such user' });
     res.json(profile);
-  });
+  }));
 
   router.post('/users', express.json(), async (req, res) => {
     try {
@@ -104,9 +105,9 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
     }
   });
 
-  router.get('/users/:uid/sessions', async (req, res) => {
+  router.get('/users/:uid/sessions', asyncHandler(async (req, res) => {
     res.json(await sessionStore.listForUser(req.params.uid));
-  });
+  }));
 
   router.delete('/users/:uid/sessions/:tokenHash', async (req, res) => {
     const ok = await sessionStore.revokeByHash(req.params.tokenHash, req.params.uid);

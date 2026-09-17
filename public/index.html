@@ -275,6 +275,26 @@ function el(tag, attrs, children) {
 
 function icon(name) { return el('span', { html: ICONS[name] || '' }); }
 
+/**
+ * A secret copied to the OS clipboard sits there until something else
+ * overwrites it — on a shared or unattended machine that's an open window
+ * for anyone with clipboard access. Best-effort: readText() needs a
+ * permission a browser may not grant, so a failure there just means no
+ * auto-clear, not a broken copy.
+ */
+const CLIPBOARD_AUTOCLEAR_MS = 45000;
+function copyWithAutoClear(text, label) {
+  if (!navigator.clipboard) return;
+  navigator.clipboard.writeText(text).then(() => {
+    toast(label || 'Copied', 'ok');
+    setTimeout(() => {
+      navigator.clipboard.readText().then((current) => {
+        if (current === text) return navigator.clipboard.writeText('');
+      }).catch(() => {});
+    }, CLIPBOARD_AUTOCLEAR_MS);
+  }).catch(() => {});
+}
+
 function initials(name) {
   return (name || '?').trim().charAt(0).toUpperCase();
 }
@@ -694,10 +714,7 @@ function openMfaSetupModal() {
 }
 
 function showMfaBackupCodes(codes) {
-  function copyAll() {
-    navigator.clipboard && navigator.clipboard.writeText(codes.join('\n'));
-    toast('Copied', 'ok');
-  }
+  function copyAll() { copyWithAutoClear(codes.join('\n')); }
   openModal([
     el('h3', {}, [icon('policy'), el('span', { text: 'Two-factor enabled' })]),
     el('div', { class: 'hint', text: 'Save these backup codes somewhere safe — they won’t be shown again, and each one works once.' }),
@@ -1030,12 +1047,22 @@ function openImportCsvModal() {
   }
 
   function downloadCreds() {
+    if (!confirm(
+      `This file contains ${importedCreds.length} plaintext temporary password${importedCreds.length === 1 ? '' : 's'}. ` +
+      'Deliver it to each user over a secure channel and delete it afterward — anyone who can read it can sign in as them until they change their password. Continue?'
+    )) return;
     const csv = 'username,temporary_password\n' + importedCreds.map((c) => `${c.username},${c.password}`).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'gus-imported-credentials.csv';
     a.click();
+    // The per-account creation is already audit-logged (see runImport);
+    // this just drops the plaintext copy sitting in page memory once the
+    // one download it's for has happened.
+    importedCreds = [];
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = 'Downloaded — credentials cleared from memory';
   }
 
   const importBtn = el('button', { class: 'btn-primary', text: 'Choose a file first', disabled: 'disabled', onclick: runImport });
@@ -1045,6 +1072,7 @@ function openImportCsvModal() {
     el('h3', {}, [icon('upload'), el('span', { text: 'Import users from CSV' })]),
     dropzone, fileInput,
     el('div', { class: 'hint', text: 'Every imported account gets a random temporary password and is forced to change it on first login, same as creating one by hand.' }),
+    el('div', { class: 'hint', text: '⚠ Imported credentials are only ever shown once, as a downloadable CSV of plaintext passwords — handle that file like the secret it is.' }),
     errEl,
     resultsWrap,
     el('div', { class: 'modal-actions' }, [
@@ -1317,7 +1345,7 @@ function openCreateAppModal() {
 
 /** GAM is the Identity Provider here — this is what a client app's OIDC library needs to point at GAM. */
 function openOidcInfoModal(app, secret) {
-  function copy(text) { navigator.clipboard && navigator.clipboard.writeText(text); toast('Copied', 'ok'); }
+  function copy(text) { copyWithAutoClear(text); }
   const redirectUris = el('textarea', { rows: '2' }); redirectUris.value = (app.redirectUris || []).join('\n');
   const errEl = el('div', { class: 'err' });
   async function saveRedirectUris() {
@@ -1422,7 +1450,7 @@ async function openAppAccessModal(a) {
 }
 
 function renderSecretModal(app, secret) {
-  function copy(text) { navigator.clipboard && navigator.clipboard.writeText(text); toast('Copied', 'ok'); }
+  function copy(text) { copyWithAutoClear(text); }
   openModal([
     el('h3', { text: '"' + app.name + '" registered' }),
     el('div', { class: 'muted', text: 'App ID:' }),

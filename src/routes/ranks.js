@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const { CAPABILITIES } = require('../models/rankStore');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 module.exports = function ranksRoutes({ rankStore, activityLog, requireCapability, requireAnyCapability }) {
   const router = express.Router();
@@ -11,9 +12,9 @@ module.exports = function ranksRoutes({ rankStore, activityLog, requireCapabilit
   // Reading the rank list is also how the Users tab populates its role
   // picker, so anyone who can manage users needs it too — only creating,
   // editing, or deleting a rank is restricted to manageRanks itself.
-  router.get('/ranks', requireAnyCapability(['manageUsers', 'manageRanks']), async (req, res) => {
+  router.get('/ranks', requireAnyCapability(['manageUsers', 'manageRanks']), asyncHandler(async (req, res) => {
     res.json({ ranks: await rankStore.list(), capabilities: CAPABILITIES });
-  });
+  }));
 
   router.post('/ranks', requireCapability('manageRanks'), express.json(), async (req, res) => {
     try {

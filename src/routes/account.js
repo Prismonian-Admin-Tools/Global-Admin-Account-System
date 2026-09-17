@@ -5,6 +5,7 @@ const multer = require('multer');
 const { verify: verifyPassword } = require('../utils/passwords');
 const { enforcePasswordPolicy } = require('../utils/enforcePasswordPolicy');
 const { matchesImageType } = require('../utils/imageSniff');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 const ALLOWED_AVATAR_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
@@ -25,11 +26,11 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
     return req.session && req.session.user ? req.session.user.uid : null;
   }
 
-  router.get('/account', async (req, res) => {
+  router.get('/account', asyncHandler(async (req, res) => {
     const profile = await userStore.getProfile(myUid(req));
     if (!profile) return res.status(404).json({ error: 'Account not found' });
     res.json(profile);
-  });
+  }));
 
   router.put('/account', express.json(), async (req, res) => {
     try {
@@ -94,9 +95,9 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
    * account (issued via /api/v1/login), not GAM's own frontend cookie
    * session — those are separate mechanisms entirely.
    */
-  router.get('/account/sessions', async (req, res) => {
+  router.get('/account/sessions', asyncHandler(async (req, res) => {
     res.json(await sessionStore.listForUser(myUid(req)));
-  });
+  }));
 
   router.delete('/account/sessions/:tokenHash', async (req, res) => {
     const ok = await sessionStore.revokeByHash(req.params.tokenHash, myUid(req));

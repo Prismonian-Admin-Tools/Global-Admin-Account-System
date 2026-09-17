@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 module.exports = function emailRoutes({ emailSettingsStore, mailer, userStore, activityLog }) {
   const router = express.Router();
@@ -7,9 +8,9 @@ module.exports = function emailRoutes({ emailSettingsStore, mailer, userStore, a
   function actor(req) { return req.session.user.uid; }
   function actorName(req) { return req.session.user.username; }
 
-  router.get('/email-settings', async (req, res) => {
+  router.get('/email-settings', asyncHandler(async (req, res) => {
     res.json(await emailSettingsStore.get());
-  });
+  }));
 
   router.put('/email-settings', express.json(), async (req, res) => {
     try {

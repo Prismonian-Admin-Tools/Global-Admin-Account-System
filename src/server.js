@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const session = require('express-session');
+const pgSessionStore = require('connect-pg-simple')(session);
 const path = require('path');
 
 const { loadConfig } = require('./config');
@@ -102,6 +103,15 @@ async function main() {
   app.use(securityHeaders());
   app.use(express.json());
   app.use(session({
+    // express-session's default MemoryStore is explicitly not fit for
+    // production (the library's own warning): every session lost on
+    // restart, no sharing across more than one process. Backed by
+    // Postgres instead, in the frontend_sessions table (migration 008)
+    // — distinct from the existing `sessions` table, which holds opaque
+    // tokens issued to client apps, a different thing entirely.
+    store: new pgSessionStore({ pool, tableName: 'frontend_sessions', createTableIfMissing: false }),
+    // Default 'connect.sid' is a minor stack-fingerprinting tell.
+    name: 'gam.sid',
     secret: config.server.sessionSecret,
     resave: false,
     saveUninitialized: false,

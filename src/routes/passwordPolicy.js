@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const { RULE_TYPES } = require('../utils/passwordPolicy');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 module.exports = function passwordPolicyRoutes({ passwordPolicyStore, activityLog }) {
   const router = express.Router();
@@ -8,9 +9,9 @@ module.exports = function passwordPolicyRoutes({ passwordPolicyStore, activityLo
   function actor(req) { return req.session.user.uid; }
   function actorName(req) { return req.session.user.username; }
 
-  router.get('/password-policy', async (req, res) => {
+  router.get('/password-policy', asyncHandler(async (req, res) => {
     res.json({ rules: await passwordPolicyStore.list(), ruleTypes: Object.keys(RULE_TYPES) });
-  });
+  }));
 
   router.post('/password-policy', express.json(), async (req, res) => {
     try {

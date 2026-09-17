@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const { toProfile } = require('../models/userStore');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 function clientIp(req) {
   return req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
@@ -57,12 +58,12 @@ module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore
     req.session.destroy(() => res.json({ ok: true }));
   });
 
-  router.get('/session', async (req, res) => {
+  router.get('/session', asyncHandler(async (req, res) => {
     if (!req.session || !req.session.user) return res.status(401).json({ error: 'Not authenticated' });
     const user = await userStore.findByUid(req.session.user.uid);
     if (!user) return req.session.destroy(() => res.status(401).json({ error: 'Account no longer exists' }));
     res.json({ profile: await withCapabilities(toProfile(user)), requirePasswordChange: !!user.must_change_password });
-  });
+  }));
 
   return router;
 };
