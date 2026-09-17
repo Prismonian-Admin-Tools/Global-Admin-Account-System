@@ -81,7 +81,14 @@ async function main() {
   setInterval(() => oidcCodeStore.deleteExpired().catch((err) => console.error('OIDC code cleanup failed:', err.message)), OIDC_CODE_CLEANUP_INTERVAL_MS);
 
   const app = express();
-  app.set('trust proxy', 1);
+  // Trusting X-Forwarded-For unconditionally (this used to be a bare `1`)
+  // lets anyone reaching GAM directly set their own req.ip on every
+  // request — defeating the (username, ip) login lockout below just by
+  // sending a different header each attempt. Off by default; a real
+  // deployment behind a reverse proxy that OVERWRITES this header
+  // (nginx, Caddy, etc. all do) should set server.trustProxy in
+  // config.yml to how many proxy hops to trust — see the example file.
+  app.set('trust proxy', config.server.trustProxy ?? false);
   app.use(express.json());
   app.use(session({
     secret: config.server.sessionSecret,
@@ -136,10 +143,36 @@ async function main() {
   app.use('/branding', express.static(`${config.avatars.directory}/../branding`));
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
+  // Defense in depth alongside the process-level handlers below: catches
+  // a thrown/forwarded error from any route that doesn't already
+  // try/catch its own (most do), so it becomes one failed request
+  // instead of an unstyled Express default error page.
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    console.error('Unhandled request error:', err);
+    if (res.headersSent) return;
+    res.status(500).json({ error: 'Internal server error' });
+  });
+
   app.listen(config.server.port, config.server.bind, () => {
     console.log(`GAM listening on http://${config.server.bind}:${config.server.port}`);
   });
 }
+
+// A single malformed request (e.g. a header that fails a DB type cast
+// before any route-level try/catch runs) used to crash the ENTIRE
+// server via an unhandled promise rejection — no auth required, taking
+// down every user's session at once. Node's default for both of these
+// is to terminate the process; logging and continuing instead is what
+// actually makes one bad request "one failed request" rather than an
+// outage. This is a backstop, not a substitute for fixing the
+// underlying bug where one's found (see utils/uuid.js).
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled promise rejection:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
 
 main().catch((err) => {
   console.error('Failed to start GAM:', err);

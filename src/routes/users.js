@@ -62,7 +62,12 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
         if (body.confirmPassword !== undefined && body.password !== body.confirmPassword) {
           throw new Error('Password and confirmation do not match');
         }
-        await userStore.resetPassword(req.params.uid, body.password, { clearMustChange: !body.keepMustChangeFlag });
+        // Forces a change by default (resetPassword's own default) —
+        // keepMustChangeFlag is an explicit opt OUT of that, not the
+        // reverse. (The web UI doesn't send this field at all; it
+        // controls the outcome via the mustChangePassword checkbox
+        // below instead, which is applied after this and wins.)
+        await userStore.resetPassword(req.params.uid, body.password, { clearMustChange: Boolean(body.keepMustChangeFlag) });
         await sessionStore.revokeAllForUser(req.params.uid);
         await activityLog.add('admin', `${actorName(req)} reset ${target.username}'s password`, actor(req), actorName(req));
       }

@@ -4,6 +4,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { verify: verifyPassword } = require('../utils/passwords');
 const { enforcePasswordPolicy } = require('../utils/enforcePasswordPolicy');
+const { matchesImageType } = require('../utils/imageSniff');
 
 const ALLOWED_AVATAR_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
@@ -72,6 +73,7 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
     try {
       const uid = myUid(req);
       if (!req.file) throw new Error('No file uploaded');
+      if (!matchesImageType(req.file.buffer, req.file.mimetype)) throw new Error('File content does not match its declared image type');
       const ext = ALLOWED_AVATAR_TYPES[req.file.mimetype];
       fs.writeFileSync(`${config.avatars.directory}/${uid}.${ext}`, req.file.buffer);
       const profile = await userStore.update(uid, { avatarExt: ext });

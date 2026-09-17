@@ -3,8 +3,14 @@ const express = require('express');
 const fs = require('fs');
 const multer = require('multer');
 const { requireAuth, requireCapability } = require('../middleware/frontendAuth');
+const { matchesImageType } = require('../utils/imageSniff');
 
-const ALLOWED_LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+// SVG is deliberately excluded: it's served statically (see server.js's
+// /branding mount) with no auth at a fixed URL, and a browser that
+// navigates to an SVG directly will run any <script> embedded in it —
+// in-origin, with access to every authenticated API endpoint. Raster
+// formats only.
+const ALLOWED_LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
 /**
  * Mounted ONCE, early — before the global requireAuth chain — because the
@@ -26,7 +32,7 @@ module.exports = function brandingRoutes({ config, rankStore, siteSettingsStore,
     storage: multer.memoryStorage(),
     limits: { fileSize: 1 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-      if (!ALLOWED_LOGO_TYPES[file.mimetype]) return cb(new Error('Only PNG, JPEG, WEBP, or SVG images are allowed'));
+      if (!ALLOWED_LOGO_TYPES[file.mimetype]) return cb(new Error('Only PNG, JPEG, or WEBP images are allowed'));
       cb(null, true);
     },
   });
@@ -50,6 +56,9 @@ module.exports = function brandingRoutes({ config, rankStore, siteSettingsStore,
   router.post('/branding/logo', requireAuth, requireBrandingCapability, upload.single('logo'), async (req, res) => {
     try {
       if (!req.file) throw new Error('No file uploaded');
+      // fileFilter above only checked the client-supplied Content-Type,
+      // which the client controls — confirm the bytes actually match.
+      if (!matchesImageType(req.file.buffer, req.file.mimetype)) throw new Error('File content does not match its declared image type');
       const ext = ALLOWED_LOGO_TYPES[req.file.mimetype];
       fs.writeFileSync(`${logoDir}/logo.${ext}`, req.file.buffer);
       const settings = await siteSettingsStore.update({ logoExt: ext });

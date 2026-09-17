@@ -11,6 +11,15 @@ server:
   sessionSecret: "CHANGE_ME_TO_A_RANDOM_STRING"
   # Public base URL, used for building absolute avatar links.
   publicUrl: "https://auth.prismonian.com"
+  # Whether (and how much) to trust X-Forwarded-For for the caller's real
+  # IP — used for login-lockout and rate-limiting. Leave `false` (the
+  # default) unless GAM sits behind a reverse proxy that OVERWRITES this
+  # header before forwarding (nginx/Caddy/etc. do this by default).
+  # Trusting it with nothing in front means any caller can set their own
+  # req.ip per request just by sending the header, defeating the login
+  # lockout entirely. If you do run behind such a proxy, set this to the
+  # number of proxy hops between the internet and GAM (usually 1).
+  trustProxy: false
 
 database:
   host: "127.0.0.1"

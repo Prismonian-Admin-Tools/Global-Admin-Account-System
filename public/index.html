@@ -1114,6 +1114,20 @@ function openManageUserModal(u) {
   const confirmNewPw = el('input', { type: 'password', placeholder: 'Confirm new password' });
   const errEl = el('div', { class: 'err' });
 
+  // "Force password change" defaults to whatever the account's CURRENT
+  // flag happens to be, which has nothing to do with the password being
+  // typed here — reset a long-since-activated account's password without
+  // touching this checkbox and it silently hands over a password only
+  // the admin knows, no forced follow-up. Suggest the safe choice the
+  // moment a new password is actually entered; still fully overridable
+  // by hand afterward. Only fires on the empty->non-empty transition, so
+  // it doesn't fight a deliberate uncheck while they keep typing.
+  let hadPassword = false;
+  newPw.addEventListener('input', () => {
+    if (newPw.value && !hadPassword) { mustChange.checked = true; cannotChange.checked = false; }
+    hadPassword = !!newPw.value;
+  });
+
   async function save() {
     errEl.textContent = '';
     if (newPw.value && newPw.value !== confirmNewPw.value) {
@@ -1664,7 +1678,7 @@ async function renderSettings(content) {
     } catch (e) { toast(e.message, 'err'); }
   }
 
-  const logoFile = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', style: 'display:none' });
+  const logoFile = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', style: 'display:none' });
   const logoPreview = branding.logoExt
     ? el('img', { class: 'logo-preview', src: `/branding/logo.${branding.logoExt}?v=${Date.now()}`, alt: '' })
     : el('div', { class: 'logo-preview', style: 'display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:11px', text: 'None' });
@@ -1711,7 +1725,7 @@ async function renderSettings(content) {
         ]),
       ]),
       logoFile,
-      el('div', { class: 'hint', text: 'PNG, JPEG, WEBP, or SVG, up to 1MB. Falls back to the default GAM mark if not set.' }),
+      el('div', { class: 'hint', text: 'PNG, JPEG, or WEBP, up to 1MB. Falls back to the default GAM mark if not set.' }),
     ]),
   ]));
 }

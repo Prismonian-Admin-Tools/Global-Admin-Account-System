@@ -1,6 +1,7 @@
 'use strict';
 const passwords = require('../utils/passwords');
 const { simhash64 } = require('../utils/passwordPolicy');
+const { isUuid } = require('../utils/uuid');
 
 // Column -> API field name mapping. This is the ONLY place that decides
 // what "all their user data" means when handed to an app — never include
@@ -74,6 +75,10 @@ class UserStore {
   }
 
   async findByUid(uid) {
+    // uid arrives as a raw :uid route param or OIDC `sub` in several
+    // places, before any further validation — a non-UUID value must
+    // fail closed, not reach Postgres (see utils/uuid.js for why).
+    if (!isUuid(uid)) return null;
     const { rows } = await this.pool.query(`${JOINED_SELECT} WHERE u.uid = $1`, [uid]);
     return rows[0] || null;
   }
@@ -95,7 +100,13 @@ class UserStore {
    */
   async verify(username, password) {
     const user = await this.findByUsername(username);
-    if (!user) return { status: 'bad' };
+    if (!user) {
+      // Same bcrypt cost as the real path below, so an unknown username
+      // doesn't return conspicuously faster than a wrong password for a
+      // real one — see passwords.verifyDummy().
+      passwords.verifyDummy();
+      return { status: 'bad' };
+    }
     if (!passwords.verify(password, user.password_hash)) return { status: 'bad' };
     if (user.disabled) return { status: 'disabled' };
     const status = (user.must_change_password || isPasswordExpired(user)) ? 'good_change_pw' : 'good';
@@ -156,8 +167,15 @@ class UserStore {
    * still landing here for the bookkeeping every password change needs:
    * retiring the old password into history and resetting the expiry-notice
    * flags so a freshly-changed password gets its own expiry warnings.
+   *
+   * clearMustChange defaults to false — an admin/CLI reset FORCES a
+   * change by default, same as account creation, per README's "no flag
+   * turns this off" guarantee. Self-service call sites (account.js,
+   * apiV1.js) explicitly pass true here, since the user just picked that
+   * password themselves. Callers that want to hand someone a permanent
+   * password without forcing a follow-up change must opt in explicitly.
    */
-  async resetPassword(uid, newPassword, { clearMustChange = true } = {}) {
+  async resetPassword(uid, newPassword, { clearMustChange = false } = {}) {
     if (!newPassword || newPassword.length < 8) throw new Error('Password must be at least 8 characters');
     const before = await this.findByUid(uid);
     if (!before) throw new Error('No such user');

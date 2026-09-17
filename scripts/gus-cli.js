@@ -221,7 +221,9 @@ async function main() {
     } else if (sub === 'reset-password') {
       const user = await requireUser(positional[0]);
       const password = flags.password || genPassword();
-      await userStore.resetPassword(user.uid, password, { clearMustChange: !flags['keep-must-change'] });
+      // Forces a change by default, same as `users create` — pass
+      // --keep-must-change to hand over a permanent password instead.
+      await userStore.resetPassword(user.uid, password, { clearMustChange: Boolean(flags['keep-must-change']) });
       await sessionStore.revokeAllForUser(user.uid);
       console.log(`Password reset for "${user.username}". All their active sessions were revoked.`);
       if (!flags.password) console.log(`Temporary password: ${password}`);
@@ -388,7 +390,11 @@ async function main() {
       const file = positional[0];
       if (!file) { console.error('Usage: activity export <file.csv> [--category C] [--actor A] [--from ISO] [--to ISO]'); process.exit(1); }
       const rows = await activityLog.list({ ...filters, limit: 5000 });
-      const esc = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+      const esc = (v) => {
+        let s = String(v ?? '');
+        if (/^[=+\-@]/.test(s)) s = `'${s}`; // prevent formula injection when this CSV is opened in Excel/Sheets
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
       const csv = ['created_at,category,actor_username,message', ...rows.map((r) => [r.created_at, r.category, r.actor_username, r.message].map(esc).join(','))].join('\n');
       require('fs').writeFileSync(file, csv);
       console.log(`Wrote ${rows.length} row(s) to ${file}.`);

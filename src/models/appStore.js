@@ -1,5 +1,6 @@
 'use strict';
 const tokens = require('../utils/tokens');
+const { isUuid } = require('../utils/uuid');
 
 const AUTH_METHODS = ['gam', 'oauth', 'saml', 'oidc', 'sssd', 'kerberos'];
 
@@ -43,6 +44,10 @@ class AppStore {
   }
 
   async findById(appId) {
+    // X-App-Id is attacker-controlled on every /api/v1/* request, before
+    // any auth — a non-UUID value must fail closed, not reach Postgres
+    // (see utils/uuid.js for why).
+    if (!isUuid(appId)) return null;
     const { rows } = await this.pool.query('SELECT * FROM apps WHERE app_id = $1', [appId]);
     return rows[0] || null;
   }
