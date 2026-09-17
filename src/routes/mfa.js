@@ -4,11 +4,11 @@ const QRCode = require('qrcode');
 const { verify: verifyPassword } = require('../utils/passwords');
 
 /**
- * Self-service TOTP enrollment — dormant, see src/models/mfaStore.js.
- * Mounted under /api alongside account.js, same auth requirements
- * (a logged-in GAM frontend session), but kept in its own file since
- * it's a self-contained feature layered on top of an account, not a
- * core account field.
+ * Self-service TOTP enrollment — see src/models/mfaStore.js for the
+ * login-time check this feeds once enabled. Mounted under /api alongside
+ * account.js, same auth requirements (a logged-in GAM frontend session),
+ * but kept in its own file since it's a self-contained feature layered on
+ * top of an account, not a core account field.
  */
 module.exports = function mfaRoutes({ userStore, mfaStore }) {
   const router = express.Router();

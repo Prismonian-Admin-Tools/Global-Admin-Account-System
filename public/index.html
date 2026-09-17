@@ -361,6 +361,17 @@ async function boot() {
 }
 
 /* ---------------- login ---------------- */
+
+/** Shared by renderLogin's submit and renderMfaChallenge's — whichever one actually finishes a login lands here. */
+function handleLoginResult(data) {
+  state.profile = data.profile;
+  applyTheme(data.profile.theme);
+  if (data.onboardingRequired) return renderOnboarding();
+  if (data.requirePasswordChange) return renderForceChange();
+  if (continueIfNeeded()) return;
+  render();
+}
+
 function renderLogin() {
   const app = document.getElementById('app');
   app.innerHTML = '';
@@ -371,15 +382,11 @@ function renderLogin() {
   async function submit() {
     errEl.textContent = '';
     try {
-      const { profile, requirePasswordChange, onboardingRequired } = await api('/session/login', {
+      const data = await api('/session/login', {
         method: 'POST', body: { username: username.value, password: password.value },
       });
-      state.profile = profile;
-      applyTheme(profile.theme);
-      if (onboardingRequired) return renderOnboarding();
-      if (requirePasswordChange) return renderForceChange();
-      if (continueIfNeeded()) return;
-      render();
+      if (data.mfaRequired) return renderMfaChallenge(data.mfaTicket);
+      handleLoginResult(data);
     } catch (e) { errEl.textContent = e.message; }
   }
 
@@ -394,6 +401,33 @@ function renderLogin() {
   password.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   app.appendChild(el('div', { class: 'center-screen' }, [form]));
   username.focus();
+}
+
+/* ---------------- MFA challenge (second step of login) ---------------- */
+function renderMfaChallenge(mfaTicket) {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const errEl = el('div', { class: 'err' });
+  const token = el('input', { type: 'text', placeholder: '6-digit code', maxlength: '10', inputmode: 'numeric', autocomplete: 'one-time-code' });
+
+  async function submit() {
+    errEl.textContent = '';
+    try {
+      const data = await api('/session/login/mfa', { method: 'POST', body: { mfaTicket, token: token.value } });
+      handleLoginResult(data);
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  const form = el('div', { class: 'card' }, [
+    brandmark(),
+    el('div', { class: 'sub', text: 'Enter the 6-digit code from your authenticator app, or one of your backup codes.' }),
+    el('label', { text: 'Code' }), token,
+    errEl,
+    el('button', { class: 'btn-primary btn-block', text: 'Verify', onclick: submit }),
+  ]);
+  token.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  app.appendChild(el('div', { class: 'center-screen' }, [form]));
+  token.focus();
 }
 
 /* ---------------- forced password change ---------------- */
@@ -717,7 +751,7 @@ async function loadMfaPanel() {
     const status = await api('/account/mfa');
     panel.innerHTML = '';
     panel.appendChild(el('h3', {}, [icon('policy'), el('span', { text: 'Two-factor authentication' })]));
-    panel.appendChild(el('div', { class: 'hint', text: 'Authenticator-app codes for your account. This is a preview — GAM doesn’t require a code to sign in yet.' }));
+    panel.appendChild(el('div', { class: 'hint', text: 'Authenticator-app codes for your account. Once enabled, you’ll need a code (or a backup code) every time you sign in.' }));
 
     if (status.enabled) {
       panel.appendChild(el('div', { class: 'badge ok', style: 'margin:10px 0;display:inline-block', text: 'Enabled' }));
@@ -1237,6 +1271,16 @@ function openManageUserModal(u) {
     hadPassword = !!newPw.value;
   });
 
+  async function disableMfa() {
+    if (!confirm(`Disable two-factor authentication for "${u.username}"? Not recommended — only do this if they've lost both their authenticator and their backup codes.`)) return;
+    try {
+      await api('/users/' + u.uid + '/mfa/disable', { method: 'POST' });
+      closeModal();
+      toast('Two-factor disabled', 'ok');
+      renderUsers(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
   async function save() {
     errEl.textContent = '';
     if (newPw.value && newPw.value !== confirmNewPw.value) {
@@ -1280,6 +1324,15 @@ function openManageUserModal(u) {
 
     el('div', { class: 'divider' }),
     el('div', { class: 'checkline' }, [needsOnboarding, el('span', { text: 'Send through the onboarding wizard on next login' })]),
+
+    el('div', { class: 'divider' }),
+    el('div', { class: 'muted', text: 'TWO-FACTOR AUTHENTICATION' }),
+    u.mfaEnabled
+      ? el('div', {}, [
+          el('span', { class: 'badge ok', style: 'display:inline-block;margin-bottom:8px', text: 'Enabled' }),
+          el('div', {}, [el('button', { class: 'btn-danger btn-sm', text: 'Disable two-factor', onclick: disableMfa })]),
+        ])
+      : el('div', { class: 'muted', text: 'Not enabled for this account.' }),
 
     el('div', { class: 'divider' }),
     el('div', { class: 'muted', text: 'PASSWORD POLICY' }),
@@ -1361,6 +1414,13 @@ function appRow(a) {
     el('button', { class: 'btn-ghost btn-sm', text: 'Access', onclick: () => openAppAccessModal(a) }),
   ];
   if (a.authMethod === 'oidc') actions.push(el('button', { class: 'btn-ghost btn-sm', text: 'OIDC info', onclick: () => openOidcInfoModal(a) }));
+  if (a.authMethod === 'gam') {
+    actions.push(el('button', {
+      class: 'btn-ghost btn-sm',
+      text: a.supportsMfaChallenge ? 'MFA challenge: on' : 'MFA challenge: off',
+      onclick: () => toggleMfaSupport(a),
+    }));
+  }
   actions.push(
     el('button', { class: 'btn-ghost btn-sm', text: 'Regenerate secret', onclick: () => regenerateSecret(a) }),
     el('button', { class: 'btn-ghost btn-sm', text: a.disabled ? 'Enable' : 'Disable', onclick: () => toggleApp(a) }),
@@ -1550,6 +1610,18 @@ async function regenerateSecret(a) {
 async function toggleApp(a) {
   try {
     await api('/apps/' + a.appId, { method: 'PATCH', body: { disabled: !a.disabled } });
+    renderApps(document.getElementById('content'));
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/**
+ * Whether this app gets good_mfa_required (and can call /login/mfa) for
+ * its MFA-enabled users, instead of the old dormant behavior. Off by
+ * default on every app — see routes/apiV1.js.
+ */
+async function toggleMfaSupport(a) {
+  try {
+    await api('/apps/' + a.appId + '/mfa-support', { method: 'PUT', body: { supportsMfaChallenge: !a.supportsMfaChallenge } });
     renderApps(document.getElementById('content'));
   } catch (e) { toast(e.message, 'err'); }
 }

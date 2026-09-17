@@ -31,7 +31,12 @@ class FailedLoginStore {
    * Checked BEFORE attempting a verify, keyed on (username, ip) together
    * — so a botnet spraying one username from many IPs and a single IP
    * spraying many usernames both eventually trip it, without one bad
-   * actor locking out everyone who shares a NAT'd IP.
+   * actor locking out everyone who shares a NAT'd IP. Also counts
+   * bad-mfa-code: someone who has the real password but not the second
+   * factor is still a login attacker, and without this a stolen password
+   * alone would let them retry TOTP guesses forever, unbounded by the
+   * per-ticket attempt cap in mfaChallengeStore (just request a new
+   * ticket via /login each time it runs out).
    */
   async isLocked(username, ip) {
     const { rows } = await this.pool.query(
@@ -39,7 +44,7 @@ class FailedLoginStore {
        FROM failed_logins
        WHERE lower(username) = lower($1) AND ip = $2
          AND created_at > now() - ($3 || ' minutes')::interval
-         AND reason = 'bad-credentials'`,
+         AND reason IN ('bad-credentials', 'bad-mfa-code')`,
       [username || '', ip || '', String(this.windowMinutes)]
     );
     const n = rows[0].n;

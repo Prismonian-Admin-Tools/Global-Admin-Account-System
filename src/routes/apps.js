@@ -44,6 +44,21 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
     }
   });
 
+  /**
+   * Per-app opt-in for the MFA challenge (see routes/apiV1.js) — an app
+   * only gets good_mfa_required for its MFA-enabled users once it
+   * declares it can actually handle that response and call /login/mfa.
+   */
+  router.put('/apps/:appId/mfa-support', express.json(), async (req, res) => {
+    try {
+      const app = await appStore.setSupportsMfaChallenge(req.params.appId, req.body?.supportsMfaChallenge);
+      await activityLog.add('apps', `${actorName(req)} ${app.supportsMfaChallenge ? 'enabled' : 'disabled'} MFA challenge support for "${app.name}"`, actor(req), actorName(req));
+      res.json({ ok: true, app });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   /** Users a sysadmin has explicitly blocked from this one app (see app_access in migration 003). */
   router.get('/apps/:appId/access', asyncHandler(async (req, res) => {
     const blockedUids = await appStore.listBlockedUids(req.params.appId);

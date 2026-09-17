@@ -2,7 +2,7 @@
 const express = require('express');
 const { asyncHandler } = require('../middleware/asyncHandler');
 
-module.exports = function usersRoutes({ userStore, rankStore, sessionStore, activityLog }) {
+module.exports = function usersRoutes({ userStore, rankStore, sessionStore, activityLog, mfaStore }) {
   const router = express.Router();
 
   function actor(req) {
@@ -122,6 +122,24 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
     const target = await userStore.findByUid(req.params.uid);
     await activityLog.add('admin', `${actorName(req)} signed ${target ? target.username : req.params.uid} out everywhere`, actor(req), actorName(req));
     res.json({ ok: true });
+  });
+
+  /**
+   * The console-side escape hatch for someone locked out of their own
+   * authenticator and backup codes — not recommended (the frontend says
+   * so), but a sysadmin needs some way to get a user back in without
+   * being able to complete the second factor themselves.
+   */
+  router.post('/users/:uid/mfa/disable', async (req, res) => {
+    try {
+      const target = await userStore.findByUid(req.params.uid);
+      if (!target) throw new Error('No such user');
+      await mfaStore.disable(req.params.uid);
+      await activityLog.add('admin', `${actorName(req)} disabled two-factor authentication for "${target.username}"`, actor(req), actorName(req));
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   return router;

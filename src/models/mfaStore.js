@@ -6,12 +6,12 @@ const passwords = require('../utils/passwords');
 
 const BACKUP_CODE_COUNT = 8;
 
-// Dormant by design: this store lets a user enroll in TOTP and get real
-// backup codes, and src/models/userStore.js exposes mfaEnabled on every
-// profile so admins can see who's enrolled — but nothing in the login
-// flow (apiV1's /login, session/login) calls verifyToken() yet. See
-// README's MFA section for what "dormant" means here and what enforcing
-// it later would still need to decide.
+// Enrollment (beginSetup/confirmSetup/disable) plus the login-time check
+// (verifyLoginToken) that both /api/v1/login (opt-in per app, see
+// apps.supports_mfa_challenge) and GAM's own frontend /session/login
+// (always enforced) call once a challenge ticket comes back — see
+// mfaChallengeStore.js for that ticket and README's MFA section for the
+// per-app opt-in rationale.
 class MfaStore {
   constructor(pool, { encryptionKey, legacySessionSecret } = {}) {
     this.pool = pool;
@@ -53,6 +53,23 @@ class MfaStore {
       await this.pool.query('INSERT INTO mfa_backup_codes (uid, code_hash) VALUES ($1, $2)', [uid, passwords.hash(code)]);
     }
     return codes;
+  }
+
+  /**
+   * The login-time check — decrypts the ENABLED secret (not a pending
+   * setup one) and accepts either a live TOTP code or an unused backup
+   * code, so someone without their phone isn't locked out entirely.
+   * false for an account with MFA off, mid-setup, or disabled — the
+   * caller (apiV1.js/session.js) never reaches this without having
+   * already confirmed mfa_enabled, but it's checked again here too so
+   * this method is safe to call on its own.
+   */
+  async verifyLoginToken(uid, token) {
+    const { rows } = await this.pool.query('SELECT mfa_secret, mfa_enabled FROM passwords WHERE uid = $1', [uid]);
+    if (!rows.length || !rows[0].mfa_enabled || !rows[0].mfa_secret) return false;
+    const secret = secretBox.decryptWithFallback(rows[0].mfa_secret, this.encryptionKey, [this.legacySessionSecret]);
+    if (totp.verifyToken(secret, token)) return true;
+    return this.verifyBackupCode(uid, token);
   }
 
   async disable(uid) {

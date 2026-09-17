@@ -21,6 +21,10 @@ function toSafe(row) {
     disabled: row.disabled,
     authMethod: row.auth_method,
     redirectUris: row.redirect_uris || [],
+    // Opt-in: an app that hasn't set this keeps the old dormant behavior
+    // exactly — /login never looks at a user's mfa_enabled for it. See
+    // routes/apiV1.js.
+    supportsMfaChallenge: row.supports_mfa_challenge,
     createdAt: row.created_at,
   };
 }
@@ -96,6 +100,14 @@ class AppStore {
     if (!validRedirectUris(redirectUris)) throw new Error('Redirect URIs must be https:// (or http://localhost for local testing)');
     const { rows } = await this.pool.query(
       'UPDATE apps SET redirect_uris = $1 WHERE app_id = $2 RETURNING *', [redirectUris, appId]
+    );
+    if (!rows[0]) throw new Error('No such app');
+    return toSafe(rows[0]);
+  }
+
+  async setSupportsMfaChallenge(appId, supportsMfaChallenge) {
+    const { rows } = await this.pool.query(
+      'UPDATE apps SET supports_mfa_challenge = $1 WHERE app_id = $2 RETURNING *', [!!supportsMfaChallenge, appId]
     );
     if (!rows[0]) throw new Error('No such app');
     return toSafe(rows[0]);

@@ -29,8 +29,8 @@ function toProfile(row) {
     lastLogin: row.last_login,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    // Dormant — see src/models/mfaStore.js. Exposed so admins can see
-    // who's enrolled; nothing at login checks this yet.
+    // See src/models/mfaStore.js / mfaChallengeStore.js for the login-time
+    // check this feeds. Exposed here so admins can see who's enrolled.
     mfaEnabled: row.mfa_enabled,
     // See migration 009 — cleared together with mustChangePassword once
     // the new-hire onboarding wizard is completed (PUT /account/onboarding).

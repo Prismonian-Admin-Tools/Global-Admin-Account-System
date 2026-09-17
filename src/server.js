@@ -19,6 +19,7 @@ const { KnownLoginStore } = require('./models/knownLoginStore');
 const { OidcKeyStore } = require('./models/oidcKeyStore');
 const { OidcCodeStore } = require('./models/oidcCodeStore');
 const { MfaStore } = require('./models/mfaStore');
+const { MfaChallengeStore } = require('./models/mfaChallengeStore');
 const { Mailer } = require('./utils/mailer');
 const { runPasswordExpirySweep } = require('./jobs/passwordExpirySweep');
 
@@ -44,6 +45,7 @@ const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const OIDC_CODE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const FAILED_LOGIN_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const FAILED_LOGIN_RETENTION_DAYS = 90;
+const MFA_CHALLENGE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 
 async function main() {
   const config = loadConfig();
@@ -63,6 +65,7 @@ async function main() {
   const oidcKeyStore = new OidcKeyStore(pool, config.server.encryptionKey);
   const oidcCodeStore = new OidcCodeStore(pool);
   const mfaStore = new MfaStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
+  const mfaChallengeStore = new MfaChallengeStore(pool);
 
   if (await userStore.isEmpty()) {
     console.warn('\n⚠  No users exist yet in the GAM database.');
@@ -90,6 +93,11 @@ async function main() {
     () => failedLoginStore.deleteOlderThan(FAILED_LOGIN_RETENTION_DAYS).catch((err) => console.error('Failed-login cleanup failed:', err.message)),
     FAILED_LOGIN_CLEANUP_INTERVAL_MS
   );
+
+  // Expired MFA challenge tickets are already unusable (takeAttempt checks
+  // expires_at) — same as the OIDC code cleanup above, this just keeps the
+  // table from growing forever.
+  setInterval(() => mfaChallengeStore.deleteExpired().catch((err) => console.error('MFA challenge cleanup failed:', err.message)), MFA_CHALLENGE_CLEANUP_INTERVAL_MS);
 
   const app = express();
   // Trusting X-Forwarded-For unconditionally (this used to be a bare `1`)
@@ -127,7 +135,7 @@ async function main() {
     '/api/v1',
     requireApp(appStore),
     perAppRateLimit(config.rateLimit.perApp),
-    apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer })
+    apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer, mfaStore, mfaChallengeStore })
   );
 
   /* =========================================================
@@ -148,12 +156,12 @@ async function main() {
    * routes/branding.js.
    * ========================================================= */
   app.use('/api', brandingRoutes({ config, rankStore, userStore, siteSettingsStore, activityLog }));
-  app.use('/api', sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog, knownLoginStore, mailer }));
+  app.use('/api', sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog, knownLoginStore, mailer, mfaStore, mfaChallengeStore }));
   app.use('/api', requireAuth);
   app.use('/api', requireGoodStanding(userStore));
   app.use('/api', accountRoutes({ config, userStore, passwordPolicyStore, sessionStore, activityLog }));
   app.use('/api', mfaRoutes({ userStore, mfaStore }));
-  app.use('/api', requireCapability(rankStore, userStore, 'manageUsers'), usersRoutes({ userStore, rankStore, sessionStore, activityLog }));
+  app.use('/api', requireCapability(rankStore, userStore, 'manageUsers'), usersRoutes({ userStore, rankStore, sessionStore, activityLog, mfaStore }));
   app.use('/api', ranksRoutes({ rankStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, userStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, userStore, caps) }));
   app.use('/api', requireCapability(rankStore, userStore, 'manageApps'), appsRoutes({ appStore, userStore, activityLog }));
   app.use('/api', requireCapability(rankStore, userStore, 'viewActivity'), activityRoutes({ activityLog, failedLoginStore }));
