@@ -13,9 +13,10 @@ const BACKUP_CODE_COUNT = 8;
 // README's MFA section for what "dormant" means here and what enforcing
 // it later would still need to decide.
 class MfaStore {
-  constructor(pool, sessionSecret) {
+  constructor(pool, { encryptionKey, legacySessionSecret } = {}) {
     this.pool = pool;
-    this.sessionSecret = sessionSecret;
+    this.encryptionKey = encryptionKey;
+    this.legacySessionSecret = legacySessionSecret;
   }
 
   async status(uid) {
@@ -29,7 +30,7 @@ class MfaStore {
     const secret = totp.generateSecret();
     const { rowCount } = await this.pool.query(
       'UPDATE passwords SET mfa_secret = $1, mfa_enabled = false, updated_at = now() WHERE uid = $2',
-      [secretBox.encrypt(secret, this.sessionSecret), uid]
+      [secretBox.encrypt(secret, this.encryptionKey), uid]
     );
     if (!rowCount) throw new Error('No such user');
     return { secret, otpauthUrl: totp.otpauthUrl(secret, { issuer, accountName }) };
@@ -39,7 +40,7 @@ class MfaStore {
   async confirmSetup(uid, token) {
     const { rows } = await this.pool.query('SELECT mfa_secret FROM passwords WHERE uid = $1', [uid]);
     if (!rows.length || !rows[0].mfa_secret) throw new Error('No MFA setup in progress — start setup first');
-    const secret = secretBox.decrypt(rows[0].mfa_secret, this.sessionSecret);
+    const secret = secretBox.decryptWithFallback(rows[0].mfa_secret, this.encryptionKey, [this.legacySessionSecret]);
     if (!totp.verifyToken(secret, token)) throw new Error('That code didn’t match — check the time on your device and try again');
 
     await this.pool.query('UPDATE passwords SET mfa_enabled = true, updated_at = now() WHERE uid = $1', [uid]);

@@ -49,7 +49,7 @@ async function main() {
   const pool = initPool(config.database);
 
   const rankStore = new RankStore(pool);
-  const emailSettingsStore = new EmailSettingsStore(pool, config.server.sessionSecret);
+  const emailSettingsStore = new EmailSettingsStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
   const mailer = new Mailer(emailSettingsStore);
   const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
@@ -59,9 +59,9 @@ async function main() {
   const siteSettingsStore = new SiteSettingsStore(pool);
   const passwordPolicyStore = new PasswordPolicyStore(pool);
   const knownLoginStore = new KnownLoginStore(pool);
-  const oidcKeyStore = new OidcKeyStore(pool);
+  const oidcKeyStore = new OidcKeyStore(pool, config.server.encryptionKey);
   const oidcCodeStore = new OidcCodeStore(pool);
-  const mfaStore = new MfaStore(pool, config.server.sessionSecret);
+  const mfaStore = new MfaStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
 
   if (await userStore.isEmpty()) {
     console.warn('\n⚠  No users exist yet in the GAM database.');

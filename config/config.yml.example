@@ -9,6 +9,16 @@ server:
   # into auth.prismonian.com directly). Unrelated to the opaque app tokens
   # issued to client apps — change this to something random.
   sessionSecret: "CHANGE_ME_TO_A_RANDOM_STRING"
+  # Encrypts values GAM must be able to read back later: the SMTP
+  # password, a user's MFA secret, and the OIDC signing key at rest.
+  # Deliberately a SEPARATE secret from sessionSecret — one key now
+  # covering two unrelated jobs (signing session cookies AND protecting
+  # data at rest) meant a leak of either purpose compromised both, and
+  # rotating sessionSecret silently broke decryption of everything else.
+  # Change this to a different random value than sessionSecret. Rotating
+  # it means re-entering the SMTP password and any enrolled MFA secrets
+  # (users just re-run setup) afterward.
+  encryptionKey: "CHANGE_ME_TO_A_DIFFERENT_RANDOM_STRING"
   # Public base URL, used for building absolute avatar links.
   publicUrl: "https://auth.prismonian.com"
   # Whether (and how much) to trust X-Forwarded-For for the caller's real

@@ -2,9 +2,10 @@
 const secretBox = require('../utils/secretBox');
 
 class EmailSettingsStore {
-  constructor(pool, sessionSecret) {
+  constructor(pool, { encryptionKey, legacySessionSecret } = {}) {
     this.pool = pool;
-    this.sessionSecret = sessionSecret;
+    this.encryptionKey = encryptionKey;
+    this.legacySessionSecret = legacySessionSecret;
   }
 
   /** Public shape — never includes the password itself, only whether one is on file. */
@@ -39,7 +40,9 @@ class EmailSettingsStore {
       port: row.port,
       secure: row.secure,
       username: row.username,
-      password: row.encrypted_password ? secretBox.decrypt(row.encrypted_password, this.sessionSecret) : null,
+      password: row.encrypted_password
+        ? secretBox.decryptWithFallback(row.encrypted_password, this.encryptionKey, [this.legacySessionSecret])
+        : null,
       fromAddress: row.from_address,
       fromName: row.from_name,
     };
@@ -54,7 +57,7 @@ class EmailSettingsStore {
     if (port !== undefined) { sets.push(`port = $${i++}`); values.push(parseInt(port, 10) || 587); }
     if (secure !== undefined) { sets.push(`secure = $${i++}`); values.push(!!secure); }
     if (username !== undefined) { sets.push(`username = $${i++}`); values.push(username || null); }
-    if (password) { sets.push(`encrypted_password = $${i++}`); values.push(secretBox.encrypt(password, this.sessionSecret)); }
+    if (password) { sets.push(`encrypted_password = $${i++}`); values.push(secretBox.encrypt(password, this.encryptionKey)); }
     if (fromAddress !== undefined) { sets.push(`from_address = $${i++}`); values.push(fromAddress || null); }
     if (fromName !== undefined) { sets.push(`from_name = $${i++}`); values.push(String(fromName || 'GAM').slice(0, 60)); }
     if (!sets.length) return this.get();

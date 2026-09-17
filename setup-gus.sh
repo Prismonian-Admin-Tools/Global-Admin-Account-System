@@ -189,9 +189,10 @@ else
   echo "==> Creating config/config.yml from the example..."
   cp config/config.yml.example config/config.yml
   SESSION_SECRET="$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9')"
-  python3 - "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$SESSION_SECRET" <<'PYEOF'
+  ENCRYPTION_KEY="$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9')"
+  python3 - "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$SESSION_SECRET" "$ENCRYPTION_KEY" <<'PYEOF'
 import sys
-db_name, db_user, db_password, session_secret = sys.argv[1:5]
+db_name, db_user, db_password, session_secret, encryption_key = sys.argv[1:6]
 path = "config/config.yml"
 with open(path) as f:
     text = f.read()
@@ -199,10 +200,11 @@ text = text.replace('name: "gus"', f'name: "{db_name}"')
 text = text.replace('user: "gus"', f'user: "{db_user}"')
 text = text.replace('password: "CHANGE_ME"', f'password: "{db_password}"')
 text = text.replace('sessionSecret: "CHANGE_ME_TO_A_RANDOM_STRING"', f'sessionSecret: "{session_secret}"')
+text = text.replace('encryptionKey: "CHANGE_ME_TO_A_DIFFERENT_RANDOM_STRING"', f'encryptionKey: "{encryption_key}"')
 with open(path, "w") as f:
     f.write(text)
 PYEOF
-  echo "    Wrote database credentials and a random session secret."
+  echo "    Wrote database credentials, a random session secret, and a random encryption key."
   echo "    Edit config/config.yml later to set server.publicUrl once you know your domain."
 fi
 
