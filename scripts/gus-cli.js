@@ -23,6 +23,7 @@ const { PasswordPolicyStore } = require('../src/models/passwordPolicyStore');
 const { RULE_TYPES } = require('../src/utils/passwordPolicy');
 const { EmailSettingsStore } = require('../src/models/emailSettingsStore');
 const { Mailer } = require('../src/utils/mailer');
+const { warnSecretOutput } = require('./lib/secretWarning');
 
 function parseArgs(argv) {
   const positional = [];
@@ -205,7 +206,7 @@ async function main() {
       // here, from the console, is exempt by design.
       const profile = await userStore.create({ username, password, role, fullName: flags['full-name'] || '', description: flags.description || '', email: flags.email || '' });
       console.log(`Created "${profile.username}" (${profile.role}).`);
-      if (!flags.password) console.log(`Temporary password: ${password}`);
+      if (!flags.password) { warnSecretOutput(); console.log(`Temporary password: ${password}`); }
       console.log('Forced to change password on first login.');
     } else if (sub === 'set-email') {
       const [username, email] = positional;
@@ -226,7 +227,7 @@ async function main() {
       await userStore.resetPassword(user.uid, password, { clearMustChange: Boolean(flags['keep-must-change']) });
       await sessionStore.revokeAllForUser(user.uid);
       console.log(`Password reset for "${user.username}". All their active sessions were revoked.`);
-      if (!flags.password) console.log(`Temporary password: ${password}`);
+      if (!flags.password) { warnSecretOutput(); console.log(`Temporary password: ${password}`); }
     } else if (sub === 'disable') {
       const user = await requireUser(positional[0]);
       await userStore.update(user.uid, { disabled: true });
@@ -304,6 +305,7 @@ async function main() {
       const { app, secret } = await appStore.create({ slug, name: flags.name || slug, authMethod: flags['auth-method'] || 'gam', redirectUris });
       console.log(`Registered "${app.slug}" (auth method: ${app.authMethod}).`);
       console.log(`App ID: ${app.appId}`);
+      warnSecretOutput();
       console.log(`Secret (save this now — it will not be shown again): ${secret}`);
       if (app.authMethod === 'oidc') printOidcInfo(app, secret);
     } else if (sub === 'set-auth-method') {
@@ -327,6 +329,7 @@ async function main() {
       const app = await requireApp(positional[0]);
       const result = await appStore.regenerateSecret(app.app_id);
       console.log(`New secret for "${app.slug}" (the old one stops working immediately):`);
+      warnSecretOutput();
       console.log(result.secret);
     } else if (sub === 'disable') {
       const app = await requireApp(positional[0]);

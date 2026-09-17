@@ -50,6 +50,29 @@ pg_exec() {
   fi
 }
 
+# Sets a role's password via psql's \password meta-command rather than a
+# literal ALTER USER ... WITH PASSWORD '<plaintext>' statement. \password
+# hashes the password client-side and sends only the hash, so the
+# plaintext never appears in any SQL statement — confirmed with
+# log_statement=all: a literal ALTER USER ... PASSWORD '...' does get the
+# plaintext written straight into Postgres's own server log, \password
+# doesn't write it anywhere. Piped via a heredoc (not a CLI arg), so it
+# never appears in `ps aux` either.
+pg_set_password() {
+  local role="$1" password="$2"
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -u postgres psql -c "\\password ${role}" <<PWEOF
+${password}
+${password}
+PWEOF
+  else
+    su postgres -c "psql -c '\\password ${role}'" <<PWEOF
+${password}
+${password}
+PWEOF
+  fi
+}
+
 if ! command -v apt-get >/dev/null 2>&1; then
   echo "This script only supports apt-based systems (Ubuntu/Debian)." >&2
   echo "If you're on a managed/containerized host without apt access, use a" >&2
@@ -154,7 +177,7 @@ PYEOF
     echo "==> Credentials check out — leaving config.yml alone."
   else
     echo "==> config.yml's password does NOT match the real database role — syncing the role to match config.yml (not touching the file, since you may have edited other settings in it)..."
-    pg_exec "ALTER USER ${CFG_DB_USER} WITH PASSWORD '${CFG_DB_PASSWORD}';"
+    pg_set_password "${CFG_DB_USER}" "${CFG_DB_PASSWORD}"
     if PGPASSWORD="$CFG_DB_PASSWORD" psql -h "$CFG_DB_HOST" -p "$CFG_DB_PORT" -U "$CFG_DB_USER" -d "$CFG_DB_NAME" -tAc "SELECT 1" >/dev/null 2>&1; then
       echo "==> Fixed — role password now matches config.yml."
     else
@@ -172,11 +195,11 @@ else
   ROLE_EXISTS=$(pg_exec "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'")
   if [ "$ROLE_EXISTS" = "1" ]; then
     echo "==> Role \"${DB_USER}\" already exists — syncing its password to the one going into config.yml..."
-    pg_exec "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';"
   else
     echo "==> Creating role \"${DB_USER}\"..."
-    pg_exec "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';"
+    pg_exec "CREATE USER ${DB_USER};"
   fi
+  pg_set_password "${DB_USER}" "${DB_PASSWORD}"
 
   DB_EXISTS=$(pg_exec "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'")
   if [ "$DB_EXISTS" = "1" ]; then

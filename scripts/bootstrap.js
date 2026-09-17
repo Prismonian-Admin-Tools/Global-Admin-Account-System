@@ -1,15 +1,22 @@
 'use strict';
 // Usage:
-//   npm run bootstrap -- --username adrian --password "temporary-pw-123" [--app console]
+//   npm run bootstrap -- --username adrian [--app console]
+//   (prompts for the temporary password, input hidden)
 //
-// Creates the first sysadmin account (forced to change password on first
-// login, like every account) and, optionally, registers a first client
-// app, printing its secret ONCE.
+// --password "temporary-pw-123" still works for scripted/CI use, but a
+// CLI flag lands in shell history and is visible to any other user on the
+// box via `ps aux` for as long as the process runs — the interactive
+// prompt (or the GUS_BOOTSTRAP_PASSWORD env var) avoids that. Creates the
+// first sysadmin account (forced to change password on first login, like
+// every account) and, optionally, registers a first client app, printing
+// its secret ONCE.
 const { loadConfig } = require('../src/config');
 const { initPool } = require('../src/db');
 const { UserStore } = require('../src/models/userStore');
 const { RankStore } = require('../src/models/rankStore');
 const { AppStore } = require('../src/models/appStore');
+const { promptPassword } = require('./lib/passwordInput');
+const { warnSecretOutput } = require('./lib/secretWarning');
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
@@ -18,11 +25,19 @@ function arg(name, fallback = null) {
 
 async function main() {
   const username = arg('username');
-  const password = arg('password');
   const appSlug = arg('app');
 
-  if (!username || !password) {
-    console.error('Usage: npm run bootstrap -- --username <name> --password <pw> [--app <slug>]');
+  if (!username) {
+    console.error('Usage: npm run bootstrap -- --username <name> [--password <pw>] [--app <slug>]');
+    process.exit(1);
+  }
+
+  let password = arg('password') || process.env.GUS_BOOTSTRAP_PASSWORD || null;
+  if (!password) {
+    password = await promptPassword('Temporary password for the sysadmin account: ');
+  }
+  if (!password) {
+    console.error('A password is required.');
     process.exit(1);
   }
 
@@ -39,6 +54,7 @@ async function main() {
   if (appSlug) {
     const { app, secret } = await appStore.create({ slug: appSlug, name: appSlug });
     console.log(`Registered app "${app.slug}" (appId ${app.appId}).`);
+    warnSecretOutput();
     console.log(`Secret (SAVE THIS NOW — it cannot be shown again): ${secret}\n`);
   }
 
