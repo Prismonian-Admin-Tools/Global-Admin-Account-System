@@ -18,8 +18,8 @@ module.exports = function ranksRoutes({ rankStore, activityLog, requireCapabilit
 
   router.post('/ranks', requireCapability('manageRanks'), express.json(), async (req, res) => {
     try {
-      const { name, label, capabilities, color } = req.body || {};
-      const rank = await rankStore.create({ name, label, capabilities, color });
+      const { name, label, capabilities, color, permissionLevel } = req.body || {};
+      const rank = await rankStore.create({ name, label, capabilities, color, permissionLevel });
       await activityLog.add('ranks', `${actorName(req)} created rank "${rank.label}" (${rank.name})`, actor(req), actorName(req));
       res.json({ ok: true, rank });
     } catch (err) {
@@ -29,8 +29,8 @@ module.exports = function ranksRoutes({ rankStore, activityLog, requireCapabilit
 
   router.patch('/ranks/:name', requireCapability('manageRanks'), express.json(), async (req, res) => {
     try {
-      const { label, capabilities, color } = req.body || {};
-      const rank = await rankStore.update(req.params.name, { label, capabilities, color });
+      const { label, capabilities, color, permissionLevel } = req.body || {};
+      const rank = await rankStore.update(req.params.name, { label, capabilities, color, permissionLevel });
       await activityLog.add('ranks', `${actorName(req)} updated rank "${rank.label}"`, actor(req), actorName(req));
       res.json({ ok: true, rank });
     } catch (err) {

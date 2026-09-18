@@ -27,7 +27,21 @@ const HARDCODED_CAPABILITIES = {
   trustedInstaller: CAPABILITIES.reduce((acc, c) => ({ ...acc, [c]: true }), {}),
 };
 
+// trustedInstaller's EFFECTIVE permission level is hardcoded here rather
+// than trusted from the stored column (which just holds 255, the max the
+// 0-255 UI/CHECK constraint allows) — the same reasoning as
+// HARDCODED_CAPABILITIES above. A stored value, even the max of the
+// public range, is still just a number a bad UPDATE (or a future custom
+// rank deliberately set to 255 too) could tie or exceed; a value no
+// database row can ever express can't be outranked by construction.
+const HARDCODED_PERMISSION_LEVEL = { trustedInstaller: 9999 };
+
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const MIN_PERMISSION_LEVEL = 0;
+const MAX_PERMISSION_LEVEL = 255;
+function isValidPermissionLevel(v) {
+  return Number.isInteger(v) && v >= MIN_PERMISSION_LEVEL && v <= MAX_PERMISSION_LEVEL;
+}
 
 function toRank(row) {
   if (!row) return null;
@@ -39,6 +53,7 @@ function toRank(row) {
     isBuiltin: row.is_builtin,
     locked: row.locked,
     color: row.color,
+    permissionLevel: HARDCODED_PERMISSION_LEVEL[row.name] !== undefined ? HARDCODED_PERMISSION_LEVEL[row.name] : row.permission_level,
     capabilities: HARDCODED_CAPABILITIES[row.name] || capabilities,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -50,8 +65,9 @@ class RankStore {
     this.pool = pool;
   }
 
+  /** Highest permission level first — the Ranks tab's whole point is showing the hierarchy at a glance. */
   async list() {
-    const { rows } = await this.pool.query('SELECT * FROM ranks ORDER BY is_builtin DESC, label ASC');
+    const { rows } = await this.pool.query('SELECT * FROM ranks ORDER BY permission_level DESC, label ASC');
     return rows.map(toRank);
   }
 
@@ -81,12 +97,26 @@ class RankStore {
     return CAPABILITIES.reduce((acc, c) => ({ ...acc, [c]: false }), {});
   }
 
-  async create({ name, label, capabilities = {}, color }) {
+  /**
+   * The number every "can this account touch that one" decision in
+   * users.js is actually built on. Unknown rank name (shouldn't happen —
+   * users.role is FK-constrained to ranks.name — but fail closed, not
+   * open) resolves to 0, the lowest possible level, never a bypass.
+   */
+  async permissionLevelFor(rankName) {
+    const rank = await this.findByName(rankName);
+    return rank ? rank.permissionLevel : MIN_PERMISSION_LEVEL;
+  }
+
+  async create({ name, label, capabilities = {}, color, permissionLevel }) {
     if (!name || !/^[A-Za-z][A-Za-z0-9]*$/.test(name)) {
       throw new Error('Rank name must start with a letter and contain only letters and numbers');
     }
     if (!label || !label.trim()) throw new Error('Rank label is required');
     if (color !== undefined && !HEX_COLOR.test(color)) throw new Error('Color must be a hex value like #ff8a3d');
+    if (permissionLevel !== undefined && !isValidPermissionLevel(permissionLevel)) {
+      throw new Error(`Permission level must be a whole number between ${MIN_PERMISSION_LEVEL} and ${MAX_PERMISSION_LEVEL}`);
+    }
     if (await this.exists(name)) throw new Error('A rank with that name already exists');
 
     const columns = ['name', 'label'];
@@ -96,6 +126,7 @@ class RankStore {
       values.push(!!capabilities[cap]);
     }
     if (color !== undefined) { columns.push('color'); values.push(color); }
+    if (permissionLevel !== undefined) { columns.push('permission_level'); values.push(permissionLevel); }
     const placeholders = columns.map((_, i) => `$${i + 1}`);
     const { rows } = await this.pool.query(
       `INSERT INTO ranks (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
@@ -105,17 +136,19 @@ class RankStore {
   }
 
   /**
-   * label/capabilities are refused on a locked rank (systemAdministrator,
-   * trustedInstaller) — those are hardcoded in this file, so a DB edit
-   * would just be lying about what the rank actually does. color is
-   * cosmetic, not a capability, so it's exempt: a sysadmin can restyle
-   * even a locked rank's badge.
+   * A locked rank (systemAdministrator, trustedInstaller) can't be
+   * touched at all, including color — its label/capabilities/
+   * permissionLevel are hardcoded in this file, so a DB edit to those
+   * would just be lying about what the rank actually does, and color
+   * used to be a cosmetic exemption from that but was still a form of
+   * editing a rank the panel says is fixed. Refusing the whole update is
+   * less confusing than letting some fields through.
    */
-  async update(name, { label, capabilities, color }) {
+  async update(name, { label, capabilities, color, permissionLevel }) {
     const rank = await this.findByName(name);
     if (!rank) throw new Error('No such rank');
-    if (rank.locked && (label !== undefined || capabilities !== undefined)) {
-      throw new Error(`"${rank.label}" is a protected rank and its capabilities can't be modified`);
+    if (rank.locked) {
+      throw new Error(`"${rank.label}" is a protected rank and can't be edited`);
     }
 
     const sets = [];
@@ -138,6 +171,13 @@ class RankStore {
       if (!HEX_COLOR.test(color)) throw new Error('Color must be a hex value like #ff8a3d');
       sets.push(`color = $${i++}`);
       values.push(color);
+    }
+    if (permissionLevel !== undefined) {
+      if (!isValidPermissionLevel(permissionLevel)) {
+        throw new Error(`Permission level must be a whole number between ${MIN_PERMISSION_LEVEL} and ${MAX_PERMISSION_LEVEL}`);
+      }
+      sets.push(`permission_level = $${i++}`);
+      values.push(permissionLevel);
     }
     if (!sets.length) return rank;
 
@@ -170,4 +210,14 @@ class RankStore {
 // systemAdministrator.
 const FULL_CAPABILITY_RANKS = Object.keys(HARDCODED_CAPABILITIES);
 
-module.exports = { RankStore, CAPABILITIES, FULL_CAPABILITY_RANKS };
+// Never offered as an assignable role from the web UI/API — regardless of
+// the caller's own permission level — for either creating a new account or
+// changing an existing one's role. Provisioning a Provider account is a
+// deliberate out-of-band action (scripts/bootstrap.js), not something
+// reachable by clicking a dropdown. See users.js.
+const UNASSIGNABLE_RANKS = ['trustedInstaller'];
+
+module.exports = {
+  RankStore, CAPABILITIES, FULL_CAPABILITY_RANKS, UNASSIGNABLE_RANKS,
+  MIN_PERMISSION_LEVEL, MAX_PERMISSION_LEVEL,
+};

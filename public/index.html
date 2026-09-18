@@ -72,7 +72,23 @@
   }
 
   * { box-sizing: border-box; }
+  /* Belt-and-suspenders: the min-width:0 fixes above stop the layout from
+     forcing this in the first place, but nothing should ever be able to
+     make the whole PAGE scroll sideways again — a wrapper that actually
+     wants horizontal scroll (.table-scroll) declares that itself. */
+  html, body { overflow-x: hidden; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); transition: background .2s, color .2s; }
+  /* A toned-down echo of the login screen's own glow (.center-screen::before
+     below, opacity .8) behind the signed-in app too — negative z-index so it
+     sits under #app's normal-flow content, and only actually shows through
+     where a child has no opaque background of its own (section.content is
+     transparent; header/nav aren't, so they stay fully legible). */
+  body::before {
+    content: ''; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+    background: radial-gradient(circle at 25% 15%, var(--accent-glow), transparent 50%),
+                radial-gradient(circle at 85% 85%, var(--accent-glow), transparent 45%);
+    opacity: .2;
+  }
   #app { min-height: 100vh; display: flex; flex-direction: column; }
   a { color: var(--accent); }
   ::selection { background: var(--accent-glow); }
@@ -113,6 +129,8 @@
   input[type="checkbox"], input[type="radio"] { width: auto; padding: 0; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow); }
   button { cursor: pointer; border: none; border-radius: 7px; padding: 9px 15px; font-size: 13px; font-weight: 600; font-family: var(--sans); transition: transform .08s, background .15s, border-color .15s, color .15s; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button:disabled:active { transform: none; }
   button:active { transform: scale(0.97); }
   .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-dim)); color: #1a1008; }
   [data-theme="light"] .btn-primary { color: #fff; }
@@ -127,7 +145,7 @@
   .hint { color: var(--text-faint); font-size: 12px; margin-top: 4px; line-height: 1.5; }
 
   /* ---- shell ---- */
-  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border-soft); background: var(--bg-alt); }
+  header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 14px 24px; border-bottom: 1px solid var(--border-soft); background: var(--bg-alt); }
   header .who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-dim); }
   .avatar-chip { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: var(--accent); flex-shrink: 0; }
   /* Colored via inline style from the rank's own `color` field (see
@@ -136,7 +154,15 @@
      here too, not just the two stock ranks that used to have one. */
   .role-pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
 
-  main { flex: 1; display: flex; }
+  /* min-width: 0 overrides a flex item's default min-width:auto — without
+     it, a flex child never shrinks below its content's natural width, so
+     one wide thing inside `content` (a table wanting to be 540px+, say)
+     pushes `content` itself wider than the space `nav` actually left it,
+     and the whole page ends up scrolling sideways instead of just that
+     one thing. This is what was actually happening on a phone-width
+     screen: not a table bug specifically, any wide content in `content`
+     would have done it. */
+  main { flex: 1; display: flex; min-width: 0; }
   nav { width: 208px; border-right: 1px solid var(--border-soft); padding: 18px 12px; background: var(--bg-alt); }
   nav .navlabel { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); padding: 4px 12px 8px; }
   nav button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; color: var(--text-dim); padding: 9px 12px; border-radius: 8px; font-weight: 600; margin-bottom: 2px; font-size: 13px; }
@@ -144,8 +170,16 @@
   nav button:hover { background: var(--surface-2); color: var(--text); }
   nav button.active { background: var(--accent-glow); color: var(--accent); }
   nav button.active svg { opacity: 1; }
-  section.content { flex: 1; padding: 30px 34px; max-width: 920px; animation: fadein .18s ease; }
+  section.content { flex: 1; min-width: 0; padding: 30px 34px; max-width: 920px; animation: fadein .18s ease; }
   @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  /* Triggered on a login/MFA card via shakeEl() on a failed attempt. */
+  @keyframes shake {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-4px); }
+    40%, 60% { transform: translateX(4px); }
+  }
+  .shake { animation: shake .4s cubic-bezier(.36,.07,.19,.97) both; }
   h2 { font-size: 19px; margin: 0 0 4px; display: flex; align-items: center; gap: 9px; }
   .pagesub { color: var(--text-faint); font-size: 13px; margin-bottom: 22px; }
 
@@ -160,6 +194,14 @@
   .panel h3 { margin: 0 0 14px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
   .panel h3 svg, .modal h3 svg { width: 15px; height: 15px; color: var(--accent); flex-shrink: 0; }
 
+  /* Every table gets wrapped in this (see tableWrap() below) so a row too
+     wide for a phone screen scrolls WITHIN the table instead of pushing
+     the whole page sideways — which is what was actually happening
+     before: the page's own horizontal scroll left everything but the
+     last column and the row's action button off-screen, with no visual
+     separation between the truncated text and the button next to it. */
+  .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll table { min-width: 540px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
   /* An empty cell (a locked rank with no Edit/Delete buttons, say) has
@@ -176,6 +218,16 @@
   .badge.ok { color: var(--green); border-color: var(--green); }
   .badge.warn { color: var(--yellow); border-color: var(--yellow); }
   .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  /* The buttons column itself used to scroll away with the rest of a wide
+     row inside .table-scroll — reachable, but only after scrolling every
+     other column out of view first, which on a phone-width table meant
+     the Edit/Delete/etc. buttons were effectively hidden. Pins it to the
+     right edge of the scroll box instead, both header and body cells (see
+     tableHeaders() — the trailing '' header gets this class too so the
+     two stay lined up), with its own background so scrolled-under
+     columns don't show through, and a border to mark the seam. */
+  .table-scroll .row-actions { position: sticky; right: 0; z-index: 1; background: var(--surface); border-left: 1px solid var(--border-soft); }
+  .table-scroll tr:hover td.row-actions { background: var(--surface-2); }
   .name-cell { display: flex; align-items: center; gap: 10px; }
 
   .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; }
@@ -311,6 +363,33 @@ function el(tag, attrs, children) {
 
 function icon(name) { return el('span', { html: ICONS[name] || '' }); }
 
+/** Wrap any <table> in this before inserting it — see the .table-scroll CSS rule for why. */
+function tableWrap(table) { return el('div', { class: 'table-scroll' }, [table]); }
+
+/**
+ * Build a table's header row from plain label strings, same as every
+ * table already did inline — except the trailing '' every actions-column
+ * table uses for its buttons header now gets tagged 'row-actions' too, so
+ * the sticky-column CSS (.table-scroll .row-actions) can keep that header
+ * cell glued to the same spot as the row-actions <td>s under it while the
+ * table scrolls horizontally, instead of the two drifting apart.
+ */
+function tableHeaders(labels) {
+  return labels.map((h) => el('th', { text: h, class: h === '' ? 'row-actions' : null }));
+}
+
+/**
+ * Restarts the .shake CSS animation on `elm` (a failed login/MFA card).
+ * Just re-adding an already-present class doesn't restart a running or
+ * just-finished CSS animation, so this drops the class, forces a reflow,
+ * then re-adds it.
+ */
+function shakeEl(elm) {
+  elm.classList.remove('shake');
+  void elm.offsetWidth;
+  elm.classList.add('shake');
+}
+
 /**
  * A secret copied to the OS clipboard sits there until something else
  * overwrites it — on a shared or unattended machine that's an open window
@@ -428,7 +507,7 @@ function renderLogin() {
       });
       if (data.mfaRequired) return renderMfaChallenge(data.mfaTicket);
       handleLoginResult(data);
-    } catch (e) { errEl.textContent = e.message; }
+    } catch (e) { errEl.textContent = e.message; shakeEl(form); }
   }
 
   const form = el('div', { class: 'card' }, [
@@ -456,7 +535,7 @@ function renderMfaChallenge(mfaTicket) {
     try {
       const data = await api('/session/login/mfa', { method: 'POST', body: { mfaTicket, token: token.value } });
       handleLoginResult(data);
-    } catch (e) { errEl.textContent = e.message; }
+    } catch (e) { errEl.textContent = e.message; shakeEl(form); }
   }
 
   const form = el('div', { class: 'card' }, [
@@ -574,8 +653,63 @@ function renderOnboarding() {
   app.appendChild(el('div', { class: 'center-screen' }, [form]));
 }
 
+/* ---------------- automatic logoff ---------------- */
+// Two independent triggers, either one signs the session out: sitting idle
+// for 10 minutes, or the device having gone to sleep. There's no direct
+// "the OS suspended" event available to a web page — the trick is that a
+// setInterval simply stops firing while the machine is asleep and then
+// fires once, late, on wake, so a heartbeat tick whose actual gap from the
+// last one is far bigger than the interval itself means the time in
+// between wasn't spent running normally. The threshold is well above
+// ordinary background-tab timer throttling (~1 tick/minute in most
+// browsers) so switching tabs for a bit doesn't trip it.
+const AUTO_LOGOFF_IDLE_MS = 10 * 60 * 1000;
+const AUTO_LOGOFF_HEARTBEAT_MS = 15 * 1000;
+const AUTO_LOGOFF_SLEEP_GAP_MS = 90 * 1000;
+const AUTO_LOGOFF_ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+let autoLogoff = null; // { timer, lastActivityAt, lastHeartbeatAt } while signed in, else null
+
+function markAutoLogoffActivity() {
+  if (autoLogoff) autoLogoff.lastActivityAt = Date.now();
+}
+
+async function triggerAutoLogoff(message) {
+  stopAutoLogoff();
+  try { await api('/session/logout', { method: 'POST' }); } catch (e) { /* best effort — we're leaving the app either way */ }
+  state.profile = null;
+  renderLogin();
+  toast(message, 'ok');
+}
+
+function startAutoLogoff() {
+  if (autoLogoff) return;
+  const now = Date.now();
+  autoLogoff = { lastActivityAt: now, lastHeartbeatAt: now, timer: null };
+  AUTO_LOGOFF_ACTIVITY_EVENTS.forEach((evt) => window.addEventListener(evt, markAutoLogoffActivity, { passive: true }));
+  autoLogoff.timer = setInterval(() => {
+    const tick = Date.now();
+    const gap = tick - autoLogoff.lastHeartbeatAt;
+    autoLogoff.lastHeartbeatAt = tick;
+    if (gap > AUTO_LOGOFF_SLEEP_GAP_MS) {
+      triggerAutoLogoff('Signed out automatically — this device went to sleep.');
+      return;
+    }
+    if (tick - autoLogoff.lastActivityAt >= AUTO_LOGOFF_IDLE_MS) {
+      triggerAutoLogoff('Signed out automatically after 10 minutes of inactivity.');
+    }
+  }, AUTO_LOGOFF_HEARTBEAT_MS);
+}
+
+function stopAutoLogoff() {
+  if (!autoLogoff) return;
+  clearInterval(autoLogoff.timer);
+  AUTO_LOGOFF_ACTIVITY_EVENTS.forEach((evt) => window.removeEventListener(evt, markAutoLogoffActivity));
+  autoLogoff = null;
+}
+
 /* ---------------- shell ---------------- */
 function render() {
+  startAutoLogoff();
   const app = document.getElementById('app');
   app.innerHTML = '';
 
@@ -624,6 +758,7 @@ function render() {
 }
 
 async function logout() {
+  stopAutoLogoff();
   await api('/session/logout', { method: 'POST' });
   state.profile = null;
   renderLogin();
@@ -646,7 +781,7 @@ async function renderDashboard(content) {
 
   const wrap = el('div', {}, [
     el('h2', {}, [icon('dashboard'), el('span', { text: 'Dashboard' })]),
-    el('div', { class: 'pagesub', text: `Welcome back, ${state.profile.username}.` }),
+    el('div', { class: 'pagesub', text: `Welcome back, ${state.profile.fullName || state.profile.username}.` }),
   ]);
   content.appendChild(wrap);
 
@@ -670,13 +805,13 @@ async function renderDashboard(content) {
       if (activity) {
         const feed = el('div', { class: 'panel' }, [
           el('h3', {}, [icon('activity'), el('span', { text: 'Recent activity' })]),
-          el('table', {}, [
+          tableWrap(el('table', {}, [
             el('tbody', {}, activity.slice(0, 8).map((a) => el('tr', {}, [
               el('td', { style: 'width:120px', text: new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }),
               el('td', {}, [el('span', { class: 'badge', text: a.category })]),
               el('td', { text: a.message }),
             ]))),
-          ]),
+          ])),
         ]);
         content.appendChild(feed);
       }
@@ -937,8 +1072,20 @@ async function ensureRanks() {
 }
 
 /* ---------------- users tab (manageUsers capability) ---------------- */
+/** Highest rank first, ties broken by username — except the signed-in user's own row, which always goes first regardless of rank. */
+function sortUsersForManager(users) {
+  return [...users].sort((a, b) => {
+    const aSelf = a.uid === state.profile.uid;
+    const bSelf = b.uid === state.profile.uid;
+    if (aSelf !== bSelf) return aSelf ? -1 : 1;
+    const byLevel = rankPermissionLevel(b.role) - rankPermissionLevel(a.role);
+    return byLevel !== 0 ? byLevel : a.username.localeCompare(b.username);
+  });
+}
+
 async function renderUsers(content) {
-  const [users] = await Promise.all([api('/users'), ensureRanks()]);
+  const [fetched] = await Promise.all([api('/users'), ensureRanks()]);
+  const users = sortUsersForManager(fetched);
   content.innerHTML = '';
 
   const selected = new Set();
@@ -975,6 +1122,7 @@ async function renderUsers(content) {
     const row = userRow(u);
     const cb = el('input', { type: 'checkbox' });
     cb.checked = selected.has(u.uid);
+    if (!canManageUser(u)) cb.disabled = true;
     cb.addEventListener('change', () => {
       if (cb.checked) selected.add(u.uid); else selected.delete(u.uid);
       updateBulkBar();
@@ -991,10 +1139,10 @@ async function renderUsers(content) {
     users.filter((u) => u.username.toLowerCase().includes(q)).forEach((u) => tbody.appendChild(makeRow(u)));
   });
 
-  const table = el('table', {}, [
-    el('thead', {}, [el('tr', {}, [el('th', { class: 'checkcol' }), ...['User', 'Role', 'Status', ''].map((h) => el('th', { text: h }))])]),
+  const table = tableWrap(el('table', {}, [
+    el('thead', {}, [el('tr', {}, [el('th', { class: 'checkcol' }), ...tableHeaders(['User', 'Role', 'Status', ''])])]),
     tbody,
-  ]);
+  ]));
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('users'), el('span', { text: 'Users' })]),
     el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with Passport.` }),
@@ -1024,15 +1172,33 @@ function rankBadgeStyle(name) {
   const c = rankColor(name);
   return `color:${c};border-color:${c};background:${c}26`;
 }
+function rankPermissionLevel(name) {
+  const rank = state.ranks.find((r) => r.name === name);
+  return rank ? rank.permissionLevel : 0;
+}
+/** Whether the signed-in user is allowed to manage (edit/delete/etc) this row, mirroring users.js's requireCanManage — this is UX only, the server enforces it either way. */
+function canManageUser(u) {
+  return u.uid !== state.profile.uid && rankPermissionLevel(u.role) < state.profile.permissionLevel;
+}
+/** Ranks assignable from a role dropdown by the signed-in user — Provider is never offered, and nothing at or above their own level is either. */
+function assignableRanks() {
+  return state.ranks.filter((r) => r.name !== 'trustedInstaller' && r.permissionLevel <= state.profile.permissionLevel);
+}
 
 function userRow(u) {
+  const isSelf = u.uid === state.profile.uid;
   const roleBadge = el('span', { class: 'badge', style: rankBadgeStyle(u.role), text: rankLabel(u.role) });
   const statusBadge = u.disabled ? el('span', { class: 'badge disabled', text: 'disabled' })
     : (u.needsOnboarding ? el('span', { class: 'badge warn', text: 'onboarding pending' })
       : (u.mustChangePassword ? el('span', { class: 'badge warn', text: 'must change pw' }) : el('span', { class: 'badge ok', text: 'active' })));
-  const editBtn = el('button', { class: 'btn-ghost btn-sm', text: 'Manage', onclick: () => openManageUserModal(u) });
+  // A row this account isn't allowed to touch (itself, or an equal/higher
+  // rank — see canManageUser()) gets no Manage button at all, rather than
+  // one that just errors when clicked — the server enforces this either
+  // way (users.js's requireCanManage), this is purely so the UI doesn't
+  // offer an action that can't succeed.
+  const editBtn = canManageUser(u) ? el('button', { class: 'btn-ghost btn-sm', text: 'Manage', onclick: () => openManageUserModal(u) }) : null;
   return el('tr', {}, [
-    el('td', {}, [el('div', { class: 'name-cell' }, [avatarNode(u, 'small'), el('span', { text: u.username })])]),
+    el('td', {}, [el('div', { class: 'name-cell' }, [avatarNode(u, 'small'), el('span', { text: u.username + (isSelf ? ' (you)' : '') })])]),
     el('td', {}, [roleBadge]),
     el('td', {}, [statusBadge]),
     el('td', { class: 'row-actions' }, [editBtn]),
@@ -1047,14 +1213,14 @@ async function renderRanks(content) {
 
   const canManage = !!(state.profile.capabilities || {}).manageRanks;
 
-  const table = el('table', {}, [
-    el('thead', {}, [el('tr', {}, ['Rank', 'Capabilities', ''].map((h) => el('th', { text: h })))]),
+  const table = tableWrap(el('table', {}, [
+    el('thead', {}, [el('tr', {}, tableHeaders(['Rank', 'Level', 'Capabilities', '']))]),
     el('tbody', {}, ranks.map((r) => rankRow(r, capabilities, canManage))),
-  ]);
+  ]));
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('ranks'), el('span', { text: 'Ranks' })]),
-    el('div', { class: 'pagesub', text: 'What each rank is allowed to do inside Passport’s own admin panel. Provider and Sysadmin’s capabilities are fixed by design — only their color can be changed.' }),
+    el('div', { class: 'pagesub', text: 'What each rank is allowed to do inside Passport’s own admin panel. Provider and Sysadmin are fixed by design and can’t be edited from here.' }),
     el('div', { class: 'toolbar' }, [
       el('div'),
       canManage ? el('button', { class: 'btn-primary', text: '+ New rank', onclick: () => openRankModal(null, capabilities) }) : el('div'),
@@ -1066,14 +1232,21 @@ async function renderRanks(content) {
 function rankRow(r, capabilities, canManage) {
   const capsText = capabilities.filter((c) => r.capabilities[c]).join(', ') || '—';
   const actions = [];
-  if (canManage) {
-    actions.push(el('button', { class: 'btn-ghost btn-sm', text: r.locked ? 'Color' : 'Edit', onclick: () => openRankModal(r, capabilities) }));
+  if (canManage && r.locked) {
+    // Provider and Sysadmin are fixed by design — greyed out, not
+    // clickable, nothing left to edit on them (not even color).
+    const btn = el('button', { class: 'btn-ghost btn-sm', text: 'Edit' });
+    btn.disabled = true;
+    actions.push(btn);
+  } else if (canManage) {
+    actions.push(el('button', { class: 'btn-ghost btn-sm', text: 'Edit', onclick: () => openRankModal(r, capabilities) }));
   }
   if (canManage && !r.isBuiltin) {
     actions.push(el('button', { class: 'btn-danger btn-sm', text: 'Delete', onclick: () => deleteRank(r) }));
   }
   return el('tr', {}, [
-    el('td', {}, [el('span', { class: 'badge', style: `color:${r.color};border-color:${r.color};background:${r.color}26`, text: r.label }), r.locked ? el('span', { class: 'hint', text: ' (fixed)' }) : null]),
+    el('td', {}, [el('span', { class: 'badge', style: `color:${r.color};border-color:${r.color};background:${r.color}26`, text: r.label })]),
+    el('td', { text: r.name === 'trustedInstaller' ? '∞' : String(r.permissionLevel) }),
     el('td', { text: capsText }),
     el('td', { class: 'row-actions' }, actions),
   ]);
@@ -1088,19 +1261,18 @@ async function deleteRank(r) {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+/** Only ever called for a new rank or an existing, unlocked one — Provider and Sysadmin's "Edit" button is disabled, see rankRow(). */
 function openRankModal(rank, capabilities) {
   const isNew = !rank;
-  const locked = !!(rank && rank.locked);
   const name = el('input', { type: 'text', placeholder: 'e.g. supportLead', value: rank ? rank.name : '' });
   if (!isNew) name.disabled = true;
   const label = el('input', { type: 'text', placeholder: 'e.g. Support Lead', value: rank ? rank.label : '' });
-  if (locked) label.disabled = true;
   const color = el('input', { type: 'color', value: (rank && rank.color) || '#8b93a1' });
+  const level = el('input', { type: 'number', min: '0', max: '255', value: rank ? String(rank.permissionLevel) : '0' });
   const checkboxes = {};
   const capList = capabilities.map((c) => {
     const cb = el('input', { type: 'checkbox' });
     cb.checked = !!(rank && rank.capabilities[c]);
-    if (locked) cb.disabled = true;
     checkboxes[c] = cb;
     return el('label', { style: 'display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px' }, [cb, el('span', { text: c })]);
   });
@@ -1109,21 +1281,13 @@ function openRankModal(rank, capabilities) {
   async function submit() {
     errEl.textContent = '';
     try {
+      const caps = {};
+      capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
       if (isNew) {
-        const caps = {};
-        capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
-        await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps, color: color.value } });
+        await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps, color: color.value, permissionLevel: Number(level.value) } });
         toast('Rank created', 'ok');
-      } else if (locked) {
-        // Label/capabilities are hardcoded for a locked rank (see
-        // rankStore.js) — sending them would just be refused, so only
-        // the cosmetic color field goes out.
-        await api('/ranks/' + rank.name, { method: 'PATCH', body: { color: color.value } });
-        toast('Color updated', 'ok');
       } else {
-        const caps = {};
-        capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
-        await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps, color: color.value } });
+        await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps, color: color.value, permissionLevel: Number(level.value) } });
         toast('Rank updated', 'ok');
       }
       closeModal();
@@ -1132,11 +1296,11 @@ function openRankModal(rank, capabilities) {
   }
 
   openModal([
-    el('h3', {}, [icon('ranks'), el('span', { text: isNew ? 'New rank' : (locked ? `"${rank.label}" — color only` : 'Edit rank') })]),
-    locked ? el('div', { class: 'hint', text: 'This rank’s capabilities are fixed by design — only its color can be changed.' }) : null,
+    el('h3', {}, [icon('ranks'), el('span', { text: isNew ? 'New rank' : 'Edit rank' })]),
     el('label', { text: 'Name (used internally, letters/numbers only)' }), name,
     el('label', { text: 'Label (shown in the UI)' }), label,
     el('label', { text: 'Color' }), color,
+    el('label', { text: 'Permission level (0-255) — a user can only manage accounts in a rank with a strictly lower level than their own' }), level,
     el('label', { text: 'Capabilities' }),
     el('div', {}, capList),
     errEl,
@@ -1185,12 +1349,12 @@ function openImportCsvModal() {
     const text = await fileInput.files[0].text();
     parsedRows = parseCsv(text).filter((r) => r.username);
     resultsWrap.innerHTML = '';
-    resultsWrap.appendChild(el('table', {}, [
+    resultsWrap.appendChild(tableWrap(el('table', {}, [
       el('thead', {}, [el('tr', {}, ['Username', 'Role'].map((h) => el('th', { text: h })))]),
       el('tbody', {}, parsedRows.map((r) => el('tr', {}, [
         el('td', { text: r.username }), el('td', { text: r.role || 'staff' }),
       ]))),
-    ]));
+    ])));
     importBtn.disabled = false;
     importBtn.textContent = `Import ${parsedRows.length} user${parsedRows.length === 1 ? '' : 's'}`;
   });
@@ -1210,10 +1374,10 @@ function openImportCsvModal() {
       }
     }
     resultsWrap.innerHTML = '';
-    resultsWrap.appendChild(el('table', {}, [
+    resultsWrap.appendChild(tableWrap(el('table', {}, [
       el('thead', {}, [el('tr', {}, ['Result'].map((h) => el('th', { text: h })))]),
       el('tbody', {}, outcomes.map((o) => el('tr', {}, [el('td', { text: o })]))),
-    ]));
+    ])));
     if (importedCreds.length) {
       downloadBtn.style.display = 'inline-block';
       toast(`Imported ${importedCreds.length} user${importedCreds.length === 1 ? '' : 's'}`, 'ok');
@@ -1261,13 +1425,69 @@ function openImportCsvModal() {
   ]);
 }
 
+/**
+ * A printable "logon card" — the plaintext temporary password only ever
+ * exists on screen for as long as the admin who set it is looking at it,
+ * so handing the new/reset account holder something to actually read it
+ * from means capturing it into a file the moment it's set. Built as a
+ * small standalone HTML page (its own styling, not this app's) so it
+ * opens and prints cleanly on its own with no dependency on this tab
+ * still being open. Uses the DOM throughout rather than string
+ * interpolation, so a username/password containing HTML-special
+ * characters can't break the generated page.
+ */
+function downloadLogonCard({ username, password, fullName, roleLabel }) {
+  const doc = document.implementation.createHTMLDocument('Logon card — ' + username);
+  const style = doc.createElement('style');
+  style.textContent = `
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f2; margin: 0; padding: 40px 16px; display: flex; justify-content: center; }
+    .card { width: 100%; max-width: 380px; border: 2px solid #1a1a1a; border-radius: 14px; padding: 28px; background: #fff; color: #111; box-sizing: border-box; }
+    .brand { font-weight: 800; font-size: 18px; margin-bottom: 2px; }
+    .sub { color: #666; font-size: 12px; margin-bottom: 20px; }
+    .row { margin-bottom: 14px; }
+    .k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #888; }
+    .v { font-size: 17px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; word-break: break-all; }
+    .note { margin-top: 20px; padding-top: 16px; border-top: 1px dashed #ccc; font-size: 11px; color: #888; line-height: 1.6; }
+    @media print { body { background: #fff; padding: 0; } .card { border-color: #000; } }
+  `;
+  doc.head.appendChild(style);
+
+  function row(label, value) {
+    const wrap = doc.createElement('div'); wrap.className = 'row';
+    const k = doc.createElement('div'); k.className = 'k'; k.textContent = label;
+    const v = doc.createElement('div'); v.className = 'v'; v.textContent = value;
+    wrap.append(k, v);
+    return wrap;
+  }
+
+  const card = doc.createElement('div'); card.className = 'card';
+  const brand = doc.createElement('div'); brand.className = 'brand'; brand.textContent = state.branding.siteName || 'Passport';
+  const sub = doc.createElement('div'); sub.className = 'sub'; sub.textContent = 'Logon card — keep this confidential';
+  card.append(brand, sub);
+  card.appendChild(row('Username', username));
+  if (fullName) card.appendChild(row('Name', fullName));
+  card.appendChild(row('Temporary password', password));
+  card.appendChild(row('Role', roleLabel));
+  const note = doc.createElement('div'); note.className = 'note';
+  note.textContent = `Issued by ${state.profile.username} on ${new Date().toLocaleString()}. A new password is required the first time this account signs in. Destroy this card once it has been delivered and the password has been changed.`;
+  card.appendChild(note);
+  doc.body.appendChild(card);
+
+  const html = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'logon-card-' + username.replace(/[^A-Za-z0-9_.-]+/g, '-') + '.html';
+  a.click();
+}
+
 function openCreateUserModal() {
   const username = el('input', { type: 'text', placeholder: 'username' });
   const password = el('input', { type: 'password', placeholder: 'temporary password' });
   const confirmPw = el('input', { type: 'password', placeholder: 'confirm temporary password' });
   const fullName = el('input', { type: 'text', placeholder: 'optional' });
   const email = el('input', { type: 'email', placeholder: 'optional — used for account notifications' });
-  const role = el('select', {}, state.ranks.map((r) => el('option', { value: r.name, text: r.label, selected: r.name === 'staff' ? 'selected' : null })));
+  const role = el('select', {}, assignableRanks().map((r) => el('option', { value: r.name, text: r.label, selected: r.name === 'staff' ? 'selected' : null })));
   const errEl = el('div', { class: 'err' });
 
   function genPassword() {
@@ -1285,8 +1505,9 @@ function openCreateUserModal() {
     if (password.value !== confirmPw.value) { errEl.textContent = 'Passwords do not match.'; return; }
     try {
       await api('/users', { method: 'POST', body: { username: username.value, password: password.value, role: role.value, fullName: fullName.value, email: email.value } });
+      downloadLogonCard({ username: username.value, password: password.value, fullName: fullName.value, roleLabel: rankLabel(role.value) });
       closeModal();
-      toast('User created — they will be required to change their password on first login', 'ok');
+      toast('User created — logon card downloaded', 'ok');
       renderUsers(document.getElementById('content'));
     } catch (e) { errEl.textContent = e.message; }
   }
@@ -1311,7 +1532,7 @@ function openCreateUserModal() {
 }
 
 function openManageUserModal(u) {
-  const role = el('select', {}, state.ranks.map((r) => el('option', { value: r.name, text: r.label, selected: r.name === u.role ? 'selected' : null })));
+  const role = el('select', {}, assignableRanks().map((r) => el('option', { value: r.name, text: r.label, selected: r.name === u.role ? 'selected' : null })));
   const fullName = el('input', { type: 'text', value: u.fullName || '' });
   const email = el('input', { type: 'email', value: u.email || '', placeholder: 'used for account notifications' });
   const description = el('textarea', { rows: '2' }); description.value = u.description || '';
@@ -1373,8 +1594,11 @@ function openManageUserModal(u) {
       };
       if (newPw.value) { body.password = newPw.value; body.confirmPassword = confirmNewPw.value; }
       await api('/users/' + u.uid, { method: 'PATCH', body });
+      if (newPw.value) {
+        downloadLogonCard({ username: u.username, password: newPw.value, fullName: fullName.value || u.fullName, roleLabel: rankLabel(role.value) });
+      }
       closeModal();
-      toast('Updated', 'ok');
+      toast(newPw.value ? 'Updated — logon card downloaded' : 'Updated', 'ok');
       renderUsers(document.getElementById('content'));
     } catch (e) { errEl.textContent = e.message; }
   }
@@ -1468,10 +1692,10 @@ const DARK_AUTH_METHODS = ['oauth', 'saml', 'sssd', 'kerberos'];
 async function renderApps(content) {
   const apps = await api('/apps');
   content.innerHTML = '';
-  const table = el('table', {}, [
-    el('thead', {}, [el('tr', {}, ['Name', 'Slug', 'Auth method', 'Status', ''].map((h) => el('th', { text: h })))]),
+  const table = tableWrap(el('table', {}, [
+    el('thead', {}, [el('tr', {}, tableHeaders(['Name', 'Slug', 'Auth method', 'Status', '']))]),
     el('tbody', {}, apps.map(appRow)),
-  ]);
+  ]));
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('apps'), el('span', { text: 'Registered apps' })]),
     el('div', { class: 'pagesub', text: 'Each app gets its own appId + secret, sent as X-App-Id / X-App-Secret on every /api/v1/* request.' }),
@@ -1729,7 +1953,7 @@ async function renderActivity(content) {
   async function applyFilters() {
     const activity = await api('/activity?' + buildQuery());
     activityTableWrap.innerHTML = '';
-    activityTableWrap.appendChild(el('table', {}, [
+    activityTableWrap.appendChild(tableWrap(el('table', {}, [
       el('thead', {}, [el('tr', {}, ['When', 'Category', 'Actor', 'Message'].map((h) => el('th', { text: h })))]),
       el('tbody', {}, activity.length ? activity.map((a) => el('tr', {}, [
         el('td', { style: 'width:150px', text: new Date(a.created_at).toLocaleString() }),
@@ -1737,7 +1961,7 @@ async function renderActivity(content) {
         el('td', { text: a.actor_username || '\u2014' }),
         el('td', { text: a.message }),
       ])) : [el('tr', {}, [el('td', { colspan: '4', class: 'empty-note', text: 'No activity matches these filters.' })])]),
-    ]));
+    ])));
   }
 
   function exportCsv() {
@@ -1766,7 +1990,7 @@ async function renderActivity(content) {
 
     el('h2', { style: 'margin-top:8px' }, [icon('key'), el('span', { text: 'Failed sign-ins' })]),
     el('div', { class: 'panel' }, [
-      el('table', {}, [
+      tableWrap(el('table', {}, [
         el('thead', {}, [el('tr', {}, ['When', 'Username', 'IP', 'Reason'].map((h) => el('th', { text: h })))]),
         el('tbody', {}, failedLogins.map((f) => el('tr', {}, [
           el('td', { style: 'width:150px', text: new Date(f.created_at).toLocaleString() }),
@@ -1774,7 +1998,7 @@ async function renderActivity(content) {
           el('td', { text: f.ip || '\u2014' }),
           el('td', {}, [el('span', { class: 'badge ' + (f.reason === 'disabled' ? 'disabled' : 'warn'), text: f.reason || '\u2014' })]),
         ]))),
-      ]),
+      ])),
     ]),
   ]));
 }
@@ -1784,10 +2008,10 @@ async function renderPasswordPolicy(content) {
   const { rules, ruleTypes } = await api('/password-policy');
   content.innerHTML = '';
 
-  const table = el('table', {}, [
-    el('thead', {}, [el('tr', {}, ['Rule', 'Type', 'Params', 'Enabled', ''].map((h) => el('th', { text: h })))]),
+  const table = tableWrap(el('table', {}, [
+    el('thead', {}, [el('tr', {}, tableHeaders(['Rule', 'Type', 'Params', 'Enabled', '']))]),
     el('tbody', {}, rules.map((r) => policyRuleRow(r))),
-  ]);
+  ]));
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('policy'), el('span', { text: 'Password Policy' })]),
