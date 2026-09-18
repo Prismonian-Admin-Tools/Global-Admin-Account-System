@@ -79,17 +79,21 @@
   html, body { overflow-x: hidden; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); transition: background .2s, color .2s; }
   /* A toned-down echo of the login screen's own glow (.center-screen::before
-     below, opacity .8) behind the signed-in app too — negative z-index so it
-     sits under #app's normal-flow content, and only actually shows through
-     where a child has no opaque background of its own (section.content is
-     transparent; header/nav aren't, so they stay fully legible). */
+     below, opacity .8) behind the signed-in app too. Deliberately non-negative
+     z-index, same as .center-screen/.card below — a fixed+negative-z-index
+     layer with no positioned ancestor can fail to composite at all on weak/
+     blocklisted GPUs (it never paints, though it's fine on a capable GPU), so
+     #app gets its own stacking context above this instead of pushing the glow
+     below zero. Only actually shows through where a child has no opaque
+     background of its own (section.content is transparent; header/nav aren't,
+     so they stay fully legible). */
   body::before {
-    content: ''; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+    content: ''; position: fixed; inset: -10%; z-index: 0; pointer-events: none;
     background: radial-gradient(circle at 25% 15%, var(--accent-glow), transparent 50%),
                 radial-gradient(circle at 85% 85%, var(--accent-glow), transparent 45%);
     opacity: .2;
   }
-  #app { min-height: 100vh; display: flex; flex-direction: column; }
+  #app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
   a { color: var(--accent); }
   ::selection { background: var(--accent-glow); }
 
