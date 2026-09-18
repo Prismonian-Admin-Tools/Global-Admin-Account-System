@@ -670,7 +670,7 @@ async function renderDashboard(content) {
 
   const wrap = el('div', {}, [
     el('h2', {}, [icon('dashboard'), el('span', { text: 'Dashboard' })]),
-    el('div', { class: 'pagesub', text: `Welcome back, ${state.profile.username}.` }),
+    el('div', { class: 'pagesub', text: `Welcome back, ${state.profile.fullName || state.profile.username}.` }),
   ]);
   content.appendChild(wrap);
 
@@ -999,6 +999,7 @@ async function renderUsers(content) {
     const row = userRow(u);
     const cb = el('input', { type: 'checkbox' });
     cb.checked = selected.has(u.uid);
+    if (!canManageUser(u)) cb.disabled = true;
     cb.addEventListener('change', () => {
       if (cb.checked) selected.add(u.uid); else selected.delete(u.uid);
       updateBulkBar();
@@ -1048,15 +1049,33 @@ function rankBadgeStyle(name) {
   const c = rankColor(name);
   return `color:${c};border-color:${c};background:${c}26`;
 }
+function rankPermissionLevel(name) {
+  const rank = state.ranks.find((r) => r.name === name);
+  return rank ? rank.permissionLevel : 0;
+}
+/** Whether the signed-in user is allowed to manage (edit/delete/etc) this row, mirroring users.js's requireCanManage — this is UX only, the server enforces it either way. */
+function canManageUser(u) {
+  return u.uid !== state.profile.uid && rankPermissionLevel(u.role) < state.profile.permissionLevel;
+}
+/** Ranks assignable from a role dropdown by the signed-in user — Provider is never offered, and nothing at or above their own level is either. */
+function assignableRanks() {
+  return state.ranks.filter((r) => r.name !== 'trustedInstaller' && r.permissionLevel <= state.profile.permissionLevel);
+}
 
 function userRow(u) {
+  const isSelf = u.uid === state.profile.uid;
   const roleBadge = el('span', { class: 'badge', style: rankBadgeStyle(u.role), text: rankLabel(u.role) });
   const statusBadge = u.disabled ? el('span', { class: 'badge disabled', text: 'disabled' })
     : (u.needsOnboarding ? el('span', { class: 'badge warn', text: 'onboarding pending' })
       : (u.mustChangePassword ? el('span', { class: 'badge warn', text: 'must change pw' }) : el('span', { class: 'badge ok', text: 'active' })));
-  const editBtn = el('button', { class: 'btn-ghost btn-sm', text: 'Manage', onclick: () => openManageUserModal(u) });
+  // A row this account isn't allowed to touch (itself, or an equal/higher
+  // rank — see canManageUser()) gets no Manage button at all, rather than
+  // one that just errors when clicked — the server enforces this either
+  // way (users.js's requireCanManage), this is purely so the UI doesn't
+  // offer an action that can't succeed.
+  const editBtn = canManageUser(u) ? el('button', { class: 'btn-ghost btn-sm', text: 'Manage', onclick: () => openManageUserModal(u) }) : null;
   return el('tr', {}, [
-    el('td', {}, [el('div', { class: 'name-cell' }, [avatarNode(u, 'small'), el('span', { text: u.username })])]),
+    el('td', {}, [el('div', { class: 'name-cell' }, [avatarNode(u, 'small'), el('span', { text: u.username + (isSelf ? ' (you)' : '') })])]),
     el('td', {}, [roleBadge]),
     el('td', {}, [statusBadge]),
     el('td', { class: 'row-actions' }, [editBtn]),
@@ -1072,7 +1091,7 @@ async function renderRanks(content) {
   const canManage = !!(state.profile.capabilities || {}).manageRanks;
 
   const table = tableWrap(el('table', {}, [
-    el('thead', {}, [el('tr', {}, ['Rank', 'Capabilities', ''].map((h) => el('th', { text: h })))]),
+    el('thead', {}, [el('tr', {}, ['Rank', 'Level', 'Capabilities', ''].map((h) => el('th', { text: h })))]),
     el('tbody', {}, ranks.map((r) => rankRow(r, capabilities, canManage))),
   ]));
 
@@ -1097,7 +1116,8 @@ function rankRow(r, capabilities, canManage) {
     actions.push(el('button', { class: 'btn-danger btn-sm', text: 'Delete', onclick: () => deleteRank(r) }));
   }
   return el('tr', {}, [
-    el('td', {}, [el('span', { class: 'badge', style: `color:${r.color};border-color:${r.color};background:${r.color}26`, text: r.label }), r.locked ? el('span', { class: 'hint', text: ' (fixed)' }) : null]),
+    el('td', {}, [el('span', { class: 'badge', style: `color:${r.color};border-color:${r.color};background:${r.color}26`, text: r.label })]),
+    el('td', { text: r.name === 'trustedInstaller' ? '∞' : String(r.permissionLevel) }),
     el('td', { text: capsText }),
     el('td', { class: 'row-actions' }, actions),
   ]);
@@ -1120,6 +1140,11 @@ function openRankModal(rank, capabilities) {
   const label = el('input', { type: 'text', placeholder: 'e.g. Support Lead', value: rank ? rank.label : '' });
   if (locked) label.disabled = true;
   const color = el('input', { type: 'color', value: (rank && rank.color) || '#8b93a1' });
+  const isProvider = !!(rank && rank.name === 'trustedInstaller');
+  const level = el('input', isProvider
+    ? { type: 'text', value: '∞ (always outranks every other rank)', disabled: 'disabled' }
+    : { type: 'number', min: '0', max: '255', value: rank ? String(rank.permissionLevel) : '0' });
+  if (locked && !isProvider) level.disabled = true;
   const checkboxes = {};
   const capList = capabilities.map((c) => {
     const cb = el('input', { type: 'checkbox' });
@@ -1136,18 +1161,18 @@ function openRankModal(rank, capabilities) {
       if (isNew) {
         const caps = {};
         capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
-        await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps, color: color.value } });
+        await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps, color: color.value, permissionLevel: Number(level.value) } });
         toast('Rank created', 'ok');
       } else if (locked) {
-        // Label/capabilities are hardcoded for a locked rank (see
-        // rankStore.js) — sending them would just be refused, so only
-        // the cosmetic color field goes out.
+        // Label/capabilities/permissionLevel are hardcoded for a locked
+        // rank (see rankStore.js) — sending them would just be refused,
+        // so only the cosmetic color field goes out.
         await api('/ranks/' + rank.name, { method: 'PATCH', body: { color: color.value } });
         toast('Color updated', 'ok');
       } else {
         const caps = {};
         capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
-        await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps, color: color.value } });
+        await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps, color: color.value, permissionLevel: Number(level.value) } });
         toast('Rank updated', 'ok');
       }
       closeModal();
@@ -1161,6 +1186,7 @@ function openRankModal(rank, capabilities) {
     el('label', { text: 'Name (used internally, letters/numbers only)' }), name,
     el('label', { text: 'Label (shown in the UI)' }), label,
     el('label', { text: 'Color' }), color,
+    el('label', { text: 'Permission level (0-255) — a user can only manage accounts in a rank with a strictly lower level than their own' }), level,
     el('label', { text: 'Capabilities' }),
     el('div', {}, capList),
     errEl,
@@ -1291,7 +1317,7 @@ function openCreateUserModal() {
   const confirmPw = el('input', { type: 'password', placeholder: 'confirm temporary password' });
   const fullName = el('input', { type: 'text', placeholder: 'optional' });
   const email = el('input', { type: 'email', placeholder: 'optional — used for account notifications' });
-  const role = el('select', {}, state.ranks.map((r) => el('option', { value: r.name, text: r.label, selected: r.name === 'staff' ? 'selected' : null })));
+  const role = el('select', {}, assignableRanks().map((r) => el('option', { value: r.name, text: r.label, selected: r.name === 'staff' ? 'selected' : null })));
   const errEl = el('div', { class: 'err' });
 
   function genPassword() {
@@ -1335,7 +1361,7 @@ function openCreateUserModal() {
 }
 
 function openManageUserModal(u) {
-  const role = el('select', {}, state.ranks.map((r) => el('option', { value: r.name, text: r.label, selected: r.name === u.role ? 'selected' : null })));
+  const role = el('select', {}, assignableRanks().map((r) => el('option', { value: r.name, text: r.label, selected: r.name === u.role ? 'selected' : null })));
   const fullName = el('input', { type: 'text', value: u.fullName || '' });
   const email = el('input', { type: 'email', value: u.email || '', placeholder: 'used for account notifications' });
   const description = el('textarea', { rows: '2' }); description.value = u.description || '';
