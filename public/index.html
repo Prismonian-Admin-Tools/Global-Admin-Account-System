@@ -78,6 +78,17 @@
      wants horizontal scroll (.table-scroll) declares that itself. */
   html, body { overflow-x: hidden; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); transition: background .2s, color .2s; }
+  /* A toned-down echo of the login screen's own glow (.center-screen::before
+     below, opacity .8) behind the signed-in app too — negative z-index so it
+     sits under #app's normal-flow content, and only actually shows through
+     where a child has no opaque background of its own (section.content is
+     transparent; header/nav aren't, so they stay fully legible). */
+  body::before {
+    content: ''; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+    background: radial-gradient(circle at 25% 15%, var(--accent-glow), transparent 50%),
+                radial-gradient(circle at 85% 85%, var(--accent-glow), transparent 45%);
+    opacity: .2;
+  }
   #app { min-height: 100vh; display: flex; flex-direction: column; }
   a { color: var(--accent); }
   ::selection { background: var(--accent-glow); }
@@ -159,6 +170,14 @@
   nav button.active svg { opacity: 1; }
   section.content { flex: 1; min-width: 0; padding: 30px 34px; max-width: 920px; animation: fadein .18s ease; }
   @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  /* Triggered on a login/MFA card via shakeEl() on a failed attempt. */
+  @keyframes shake {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-4px); }
+    40%, 60% { transform: translateX(4px); }
+  }
+  .shake { animation: shake .4s cubic-bezier(.36,.07,.19,.97) both; }
   h2 { font-size: 19px; margin: 0 0 4px; display: flex; align-items: center; gap: 9px; }
   .pagesub { color: var(--text-faint); font-size: 13px; margin-bottom: 22px; }
 
@@ -336,6 +355,18 @@ function icon(name) { return el('span', { html: ICONS[name] || '' }); }
 function tableWrap(table) { return el('div', { class: 'table-scroll' }, [table]); }
 
 /**
+ * Restarts the .shake CSS animation on `elm` (a failed login/MFA card).
+ * Just re-adding an already-present class doesn't restart a running or
+ * just-finished CSS animation, so this drops the class, forces a reflow,
+ * then re-adds it.
+ */
+function shakeEl(elm) {
+  elm.classList.remove('shake');
+  void elm.offsetWidth;
+  elm.classList.add('shake');
+}
+
+/**
  * A secret copied to the OS clipboard sits there until something else
  * overwrites it — on a shared or unattended machine that's an open window
  * for anyone with clipboard access. Best-effort: readText() needs a
@@ -452,7 +483,7 @@ function renderLogin() {
       });
       if (data.mfaRequired) return renderMfaChallenge(data.mfaTicket);
       handleLoginResult(data);
-    } catch (e) { errEl.textContent = e.message; }
+    } catch (e) { errEl.textContent = e.message; shakeEl(form); }
   }
 
   const form = el('div', { class: 'card' }, [
@@ -480,7 +511,7 @@ function renderMfaChallenge(mfaTicket) {
     try {
       const data = await api('/session/login/mfa', { method: 'POST', body: { mfaTicket, token: token.value } });
       handleLoginResult(data);
-    } catch (e) { errEl.textContent = e.message; }
+    } catch (e) { errEl.textContent = e.message; shakeEl(form); }
   }
 
   const form = el('div', { class: 'card' }, [
