@@ -3,17 +3,22 @@ const express = require('express');
 const { RULE_TYPES } = require('../utils/passwordPolicy');
 const { asyncHandler } = require('../middleware/asyncHandler');
 
-module.exports = function passwordPolicyRoutes({ passwordPolicyStore, activityLog }) {
+module.exports = function passwordPolicyRoutes({ passwordPolicyStore, activityLog, requireCapability, requireAnyCapability }) {
   const router = express.Router();
 
   function actor(req) { return req.session.user.uid; }
   function actorName(req) { return req.session.user.username; }
 
-  router.get('/password-policy', asyncHandler(async (req, res) => {
+  // Reading the rules is also how the Users tab's logon-sheet handout
+  // shows a new account's password requirements, so anyone who can
+  // manage users needs it too — only creating, editing, or deleting a
+  // rule is restricted to managePasswordPolicy itself. Same pattern as
+  // /ranks's own GET (see ranks.js).
+  router.get('/password-policy', requireAnyCapability(['manageUsers', 'managePasswordPolicy']), asyncHandler(async (req, res) => {
     res.json({ rules: await passwordPolicyStore.list(), ruleTypes: Object.keys(RULE_TYPES) });
   }));
 
-  router.post('/password-policy', express.json(), async (req, res) => {
+  router.post('/password-policy', requireCapability('managePasswordPolicy'), express.json(), async (req, res) => {
     try {
       const { type, label, params, enabled } = req.body || {};
       const rule = await passwordPolicyStore.create({ type, label, params, enabled });
@@ -24,7 +29,7 @@ module.exports = function passwordPolicyRoutes({ passwordPolicyStore, activityLo
     }
   });
 
-  router.patch('/password-policy/:id', express.json(), async (req, res) => {
+  router.patch('/password-policy/:id', requireCapability('managePasswordPolicy'), express.json(), async (req, res) => {
     try {
       const { label, enabled, params } = req.body || {};
       const rule = await passwordPolicyStore.update(req.params.id, { label, enabled, params });
@@ -35,7 +40,7 @@ module.exports = function passwordPolicyRoutes({ passwordPolicyStore, activityLo
     }
   });
 
-  router.delete('/password-policy/:id', async (req, res) => {
+  router.delete('/password-policy/:id', requireCapability('managePasswordPolicy'), async (req, res) => {
     try {
       await passwordPolicyStore.remove(req.params.id);
       await activityLog.add('password-policy', `${actorName(req)} deleted a password rule`, actor(req), actorName(req));

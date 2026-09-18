@@ -1417,7 +1417,10 @@ function openImportCsvModal() {
 }
 
 /**
- * A printable "logon card" — the plaintext temporary password only ever
+ * A printable "logon card" (just the credentials) or "logon sheet" (the
+ * same, plus the active password requirements — for someone who'll have
+ * to pick their own password on first login and won't otherwise know
+ * what's required of it). The plaintext temporary password only ever
  * exists on screen for as long as the admin who set it is looking at it,
  * so handing the new/reset account holder something to actually read it
  * from means capturing it into a file the moment it's set. Built as a
@@ -1427,17 +1430,23 @@ function openImportCsvModal() {
  * interpolation, so a username/password containing HTML-special
  * characters can't break the generated page.
  */
-function downloadLogonCard({ username, password, fullName, roleLabel }) {
-  const doc = document.implementation.createHTMLDocument('Logon card — ' + username);
+function downloadLogonHandout({ kind, username, password, fullName, roleLabel, rules }) {
+  const isSheet = kind === 'sheet';
+  const noun = isSheet ? 'Logon sheet' : 'Logon card';
+  const doc = document.implementation.createHTMLDocument(noun + ' — ' + username);
   const style = doc.createElement('style');
   style.textContent = `
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f2; margin: 0; padding: 40px 16px; display: flex; justify-content: center; }
-    .card { width: 100%; max-width: 380px; border: 2px solid #1a1a1a; border-radius: 14px; padding: 28px; background: #fff; color: #111; box-sizing: border-box; }
+    .card { width: 100%; max-width: ${isSheet ? '460px' : '380px'}; border: 2px solid #1a1a1a; border-radius: 14px; padding: 28px; background: #fff; color: #111; box-sizing: border-box; }
     .brand { font-weight: 800; font-size: 18px; margin-bottom: 2px; }
     .sub { color: #666; font-size: 12px; margin-bottom: 20px; }
     .row { margin-bottom: 14px; }
     .k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #888; }
     .v { font-size: 17px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; word-break: break-all; }
+    .rules { margin-top: 20px; padding-top: 16px; border-top: 1px dashed #ccc; }
+    .rules .k { margin-bottom: 8px; }
+    .rules ul { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; }
+    .rules .none { font-size: 13px; color: #666; }
     .note { margin-top: 20px; padding-top: 16px; border-top: 1px dashed #ccc; font-size: 11px; color: #888; line-height: 1.6; }
     @media print { body { background: #fff; padding: 0; } .card { border-color: #000; } }
   `;
@@ -1453,14 +1462,37 @@ function downloadLogonCard({ username, password, fullName, roleLabel }) {
 
   const card = doc.createElement('div'); card.className = 'card';
   const brand = doc.createElement('div'); brand.className = 'brand'; brand.textContent = state.branding.siteName || 'Passport';
-  const sub = doc.createElement('div'); sub.className = 'sub'; sub.textContent = 'Logon card — keep this confidential';
+  const sub = doc.createElement('div'); sub.className = 'sub'; sub.textContent = noun + ' — keep this confidential';
   card.append(brand, sub);
   card.appendChild(row('Username', username));
   if (fullName) card.appendChild(row('Name', fullName));
   card.appendChild(row('Temporary password', password));
   card.appendChild(row('Role', roleLabel));
+
+  if (isSheet) {
+    const rulesWrap = doc.createElement('div'); rulesWrap.className = 'rules';
+    const k = doc.createElement('div'); k.className = 'k'; k.textContent = 'The new password must';
+    rulesWrap.appendChild(k);
+    const enabled = (rules || []).filter((r) => r.enabled);
+    if (enabled.length) {
+      const ul = doc.createElement('ul');
+      enabled.forEach((r) => {
+        const li = doc.createElement('li');
+        li.textContent = r.label;
+        ul.appendChild(li);
+      });
+      rulesWrap.appendChild(ul);
+    } else {
+      const none = doc.createElement('div');
+      none.className = 'none';
+      none.textContent = 'No specific requirements beyond what the panel enforces at a minimum.';
+      rulesWrap.appendChild(none);
+    }
+    card.appendChild(rulesWrap);
+  }
+
   const note = doc.createElement('div'); note.className = 'note';
-  note.textContent = `Issued by ${state.profile.username} on ${new Date().toLocaleString()}. A new password is required the first time this account signs in. Destroy this card once it has been delivered and the password has been changed.`;
+  note.textContent = `Issued by ${state.profile.username} on ${new Date().toLocaleString()}. A new password is required the first time this account signs in. Destroy this ${isSheet ? 'sheet' : 'card'} once it has been delivered and the password has been changed.`;
   card.appendChild(note);
   doc.body.appendChild(card);
 
@@ -1468,7 +1500,7 @@ function downloadLogonCard({ username, password, fullName, roleLabel }) {
   const blob = new Blob([html], { type: 'text/html' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'logon-card-' + username.replace(/[^A-Za-z0-9_.-]+/g, '-') + '.html';
+  a.download = `logon-${kind}-` + username.replace(/[^A-Za-z0-9_.-]+/g, '-') + '.html';
   a.click();
 }
 
@@ -1479,7 +1511,17 @@ function openCreateUserModal() {
   const fullName = el('input', { type: 'text', placeholder: 'optional' });
   const email = el('input', { type: 'email', placeholder: 'optional — used for account notifications' });
   const role = el('select', {}, assignableRanks().map((r) => el('option', { value: r.name, text: r.label, selected: r.name === 'staff' ? 'selected' : null })));
+  const handoutType = el('select', {}, [
+    el('option', { value: 'card', text: 'Logon card (username, password, role)' }),
+    el('option', { value: 'sheet', text: 'Logon sheet (also lists the password requirements)' }),
+  ]);
   const errEl = el('div', { class: 'err' });
+
+  // Fetched in the background so the modal doesn't wait on it — worst
+  // case (submitting before it resolves) a sheet just shows "no specific
+  // requirements" instead of the real list.
+  let passwordRules = [];
+  api('/password-policy').then((r) => { passwordRules = r.rules; }).catch(() => {});
 
   function genPassword() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#%';
@@ -1496,9 +1538,12 @@ function openCreateUserModal() {
     if (password.value !== confirmPw.value) { errEl.textContent = 'Passwords do not match.'; return; }
     try {
       await api('/users', { method: 'POST', body: { username: username.value, password: password.value, role: role.value, fullName: fullName.value, email: email.value } });
-      downloadLogonCard({ username: username.value, password: password.value, fullName: fullName.value, roleLabel: rankLabel(role.value) });
+      downloadLogonHandout({
+        kind: handoutType.value, username: username.value, password: password.value,
+        fullName: fullName.value, roleLabel: rankLabel(role.value), rules: passwordRules,
+      });
       closeModal();
-      toast('User created — logon card downloaded', 'ok');
+      toast(`User created — logon ${handoutType.value} downloaded`, 'ok');
       renderUsers(document.getElementById('content'));
     } catch (e) { errEl.textContent = e.message; }
   }
@@ -1512,6 +1557,7 @@ function openCreateUserModal() {
     el('label', { text: 'Confirm temporary password' }), confirmPw,
     el('div', { class: 'hint', text: 'At least 8 characters. They\u2019ll be forced to change it on first login, no matter what.' }),
     el('label', { text: 'Role' }), role,
+    el('label', { text: 'Handout to print/deliver' }), handoutType,
     errEl,
     el('div', { class: 'modal-actions' }, [
       el('div', { class: 'right' }, [
@@ -1586,7 +1632,7 @@ function openManageUserModal(u) {
       if (newPw.value) { body.password = newPw.value; body.confirmPassword = confirmNewPw.value; }
       await api('/users/' + u.uid, { method: 'PATCH', body });
       if (newPw.value) {
-        downloadLogonCard({ username: u.username, password: newPw.value, fullName: fullName.value || u.fullName, roleLabel: rankLabel(role.value) });
+        downloadLogonHandout({ kind: 'card', username: u.username, password: newPw.value, fullName: fullName.value || u.fullName, roleLabel: rankLabel(role.value) });
       }
       closeModal();
       toast(newPw.value ? 'Updated — logon card downloaded' : 'Updated', 'ok');

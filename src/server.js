@@ -161,12 +161,25 @@ async function main() {
   app.use('/api', requireGoodStanding(userStore));
   app.use('/api', accountRoutes({ config, userStore, passwordPolicyStore, sessionStore, activityLog }));
   app.use('/api', mfaRoutes({ userStore, mfaStore }));
-  app.use('/api', requireCapability(rankStore, userStore, 'manageUsers'), usersRoutes({ userStore, rankStore, sessionStore, activityLog, mfaStore }));
+  // Each capability gate below is mounted at that router's OWN path
+  // prefix, not the generic '/api' — a bare middleware mounted at '/api'
+  // runs for every request that falls through to it (Express keeps
+  // walking unmatched layers looking for something that handles the
+  // path), so a gate meant for e.g. /apps was actually being checked
+  // against every request for any route mounted after it too, including
+  // ones an unrelated capability should have been enough for. Scoping
+  // each gate to its router's own prefix means a request for a path it
+  // doesn't own skips it entirely instead of being denied by it.
+  app.use('/api/users', requireCapability(rankStore, userStore, 'manageUsers'));
+  app.use('/api', usersRoutes({ userStore, rankStore, sessionStore, activityLog, mfaStore }));
   app.use('/api', ranksRoutes({ rankStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, userStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, userStore, caps) }));
-  app.use('/api', requireCapability(rankStore, userStore, 'manageApps'), appsRoutes({ appStore, userStore, activityLog }));
-  app.use('/api', requireCapability(rankStore, userStore, 'viewActivity'), activityRoutes({ activityLog, failedLoginStore }));
-  app.use('/api', requireCapability(rankStore, userStore, 'managePasswordPolicy'), passwordPolicyRoutes({ passwordPolicyStore, activityLog }));
-  app.use('/api', requireCapability(rankStore, userStore, 'manageEmail'), emailRoutes({ emailSettingsStore, mailer, userStore, activityLog }));
+  app.use('/api/apps', requireCapability(rankStore, userStore, 'manageApps'));
+  app.use('/api', appsRoutes({ appStore, userStore, activityLog }));
+  app.use(['/api/activity', '/api/failed-logins'], requireCapability(rankStore, userStore, 'viewActivity'));
+  app.use('/api', activityRoutes({ activityLog, failedLoginStore }));
+  app.use('/api', passwordPolicyRoutes({ passwordPolicyStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, userStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, userStore, caps) }));
+  app.use('/api/email-settings', requireCapability(rankStore, userStore, 'manageEmail'));
+  app.use('/api', emailRoutes({ emailSettingsStore, mailer, userStore, activityLog }));
 
   app.use('/avatars', express.static(config.avatars.directory));
   app.use('/branding', express.static(`${config.avatars.directory}/../branding`));
