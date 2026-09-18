@@ -78,8 +78,10 @@
      wants horizontal scroll (.table-scroll) declares that itself. */
   html, body { overflow-x: hidden; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); transition: background .2s, color .2s; }
-  /* A toned-down echo of the login screen's own glow (.center-screen::before
-     below, opacity .8) behind the signed-in app too. Deliberately non-negative
+  /* An echo of the login screen's own glow (.center-screen::before below,
+     opacity .8) behind the signed-in app too — still a bit softer than that
+     since there's far more foreground content here to compete with, but not
+     as washed-out as the original .2 pass. Deliberately non-negative
      z-index, same as .center-screen/.card below — a fixed+negative-z-index
      layer with no positioned ancestor can fail to composite at all on weak/
      blocklisted GPUs (it never paints, though it's fine on a capable GPU), so
@@ -91,7 +93,7 @@
     content: ''; position: fixed; inset: -10%; z-index: 0; pointer-events: none;
     background: radial-gradient(circle at 25% 15%, var(--accent-glow), transparent 50%),
                 radial-gradient(circle at 85% 85%, var(--accent-glow), transparent 45%);
-    opacity: .2;
+    opacity: .45;
   }
   #app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
   a { color: var(--accent); }
