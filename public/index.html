@@ -129,6 +129,8 @@
   input[type="checkbox"], input[type="radio"] { width: auto; padding: 0; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow); }
   button { cursor: pointer; border: none; border-radius: 7px; padding: 9px 15px; font-size: 13px; font-weight: 600; font-family: var(--sans); transition: transform .08s, background .15s, border-color .15s, color .15s; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button:disabled:active { transform: none; }
   button:active { transform: scale(0.97); }
   .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-dim)); color: #1a1008; }
   [data-theme="light"] .btn-primary { color: #fff; }
@@ -1128,7 +1130,7 @@ async function renderRanks(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('ranks'), el('span', { text: 'Ranks' })]),
-    el('div', { class: 'pagesub', text: 'What each rank is allowed to do inside Passport’s own admin panel. Provider and Sysadmin’s capabilities are fixed by design — only their color can be changed.' }),
+    el('div', { class: 'pagesub', text: 'What each rank is allowed to do inside Passport’s own admin panel. Provider and Sysadmin are fixed by design and can’t be edited from here.' }),
     el('div', { class: 'toolbar' }, [
       el('div'),
       canManage ? el('button', { class: 'btn-primary', text: '+ New rank', onclick: () => openRankModal(null, capabilities) }) : el('div'),
@@ -1140,8 +1142,14 @@ async function renderRanks(content) {
 function rankRow(r, capabilities, canManage) {
   const capsText = capabilities.filter((c) => r.capabilities[c]).join(', ') || '—';
   const actions = [];
-  if (canManage) {
-    actions.push(el('button', { class: 'btn-ghost btn-sm', text: r.locked ? 'Color' : 'Edit', onclick: () => openRankModal(r, capabilities) }));
+  if (canManage && r.locked) {
+    // Provider and Sysadmin are fixed by design — greyed out, not
+    // clickable, nothing left to edit on them (not even color).
+    const btn = el('button', { class: 'btn-ghost btn-sm', text: 'Edit' });
+    btn.disabled = true;
+    actions.push(btn);
+  } else if (canManage) {
+    actions.push(el('button', { class: 'btn-ghost btn-sm', text: 'Edit', onclick: () => openRankModal(r, capabilities) }));
   }
   if (canManage && !r.isBuiltin) {
     actions.push(el('button', { class: 'btn-danger btn-sm', text: 'Delete', onclick: () => deleteRank(r) }));
@@ -1163,24 +1171,18 @@ async function deleteRank(r) {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+/** Only ever called for a new rank or an existing, unlocked one — Provider and Sysadmin's "Edit" button is disabled, see rankRow(). */
 function openRankModal(rank, capabilities) {
   const isNew = !rank;
-  const locked = !!(rank && rank.locked);
   const name = el('input', { type: 'text', placeholder: 'e.g. supportLead', value: rank ? rank.name : '' });
   if (!isNew) name.disabled = true;
   const label = el('input', { type: 'text', placeholder: 'e.g. Support Lead', value: rank ? rank.label : '' });
-  if (locked) label.disabled = true;
   const color = el('input', { type: 'color', value: (rank && rank.color) || '#8b93a1' });
-  const isProvider = !!(rank && rank.name === 'trustedInstaller');
-  const level = el('input', isProvider
-    ? { type: 'text', value: '∞ (always outranks every other rank)', disabled: 'disabled' }
-    : { type: 'number', min: '0', max: '255', value: rank ? String(rank.permissionLevel) : '0' });
-  if (locked && !isProvider) level.disabled = true;
+  const level = el('input', { type: 'number', min: '0', max: '255', value: rank ? String(rank.permissionLevel) : '0' });
   const checkboxes = {};
   const capList = capabilities.map((c) => {
     const cb = el('input', { type: 'checkbox' });
     cb.checked = !!(rank && rank.capabilities[c]);
-    if (locked) cb.disabled = true;
     checkboxes[c] = cb;
     return el('label', { style: 'display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px' }, [cb, el('span', { text: c })]);
   });
@@ -1189,20 +1191,12 @@ function openRankModal(rank, capabilities) {
   async function submit() {
     errEl.textContent = '';
     try {
+      const caps = {};
+      capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
       if (isNew) {
-        const caps = {};
-        capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
         await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps, color: color.value, permissionLevel: Number(level.value) } });
         toast('Rank created', 'ok');
-      } else if (locked) {
-        // Label/capabilities/permissionLevel are hardcoded for a locked
-        // rank (see rankStore.js) — sending them would just be refused,
-        // so only the cosmetic color field goes out.
-        await api('/ranks/' + rank.name, { method: 'PATCH', body: { color: color.value } });
-        toast('Color updated', 'ok');
       } else {
-        const caps = {};
-        capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
         await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps, color: color.value, permissionLevel: Number(level.value) } });
         toast('Rank updated', 'ok');
       }
@@ -1212,8 +1206,7 @@ function openRankModal(rank, capabilities) {
   }
 
   openModal([
-    el('h3', {}, [icon('ranks'), el('span', { text: isNew ? 'New rank' : (locked ? `"${rank.label}" — color only` : 'Edit rank') })]),
-    locked ? el('div', { class: 'hint', text: 'This rank’s capabilities are fixed by design — only its color can be changed.' }) : null,
+    el('h3', {}, [icon('ranks'), el('span', { text: isNew ? 'New rank' : 'Edit rank' })]),
     el('label', { text: 'Name (used internally, letters/numbers only)' }), name,
     el('label', { text: 'Label (shown in the UI)' }), label,
     el('label', { text: 'Color' }), color,

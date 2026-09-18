@@ -136,20 +136,19 @@ class RankStore {
   }
 
   /**
-   * label/capabilities/permissionLevel are refused on a locked rank
-   * (systemAdministrator, trustedInstaller) — those are hardcoded in
-   * this file, so a DB edit would just be lying about what the rank
-   * actually does (and for trustedInstaller, permissionLevel is
-   * hardcoded too — see HARDCODED_PERMISSION_LEVEL — so an edit here
-   * would silently do nothing anyway; refusing it is less confusing than
-   * a no-op). color is cosmetic, not a capability, so it's exempt: a
-   * sysadmin can restyle even a locked rank's badge.
+   * A locked rank (systemAdministrator, trustedInstaller) can't be
+   * touched at all, including color — its label/capabilities/
+   * permissionLevel are hardcoded in this file, so a DB edit to those
+   * would just be lying about what the rank actually does, and color
+   * used to be a cosmetic exemption from that but was still a form of
+   * editing a rank the panel says is fixed. Refusing the whole update is
+   * less confusing than letting some fields through.
    */
   async update(name, { label, capabilities, color, permissionLevel }) {
     const rank = await this.findByName(name);
     if (!rank) throw new Error('No such rank');
-    if (rank.locked && (label !== undefined || capabilities !== undefined || permissionLevel !== undefined)) {
-      throw new Error(`"${rank.label}" is a protected rank and its capabilities can't be modified`);
+    if (rank.locked) {
+      throw new Error(`"${rank.label}" is a protected rank and can't be edited`);
     }
 
     const sets = [];
