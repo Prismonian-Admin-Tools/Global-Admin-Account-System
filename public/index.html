@@ -16,7 +16,7 @@
      than high-contrast borders (its real border-vs-surface ratio is
      only ~1.3:1), so this intentionally follows that over abstract
      contrast targets. ---- */
-  html, [data-theme="ember"] {
+  [data-theme="ember"] {
     --bg: #0b0e11; --bg-alt: #12161b; --surface: #12161b; --surface-2: #181d24;
     --border: #252b34; --border-soft: #1c212a;
     --text: #e8e6e1; --text-dim: #818996; --text-faint: #4f5561;
@@ -44,15 +44,31 @@
     --accent: #d4661f; --accent-dim: #b4551a; --accent-glow: rgba(212,102,31,0.16);
     --green: #327140; --red: #b33a32; --yellow: #93690a; --blue: #285d87;
   }
-  /* ---- sharp: pure black/white, maximum border-vs-surface contrast —
-     the opposite end of the spectrum from ember's low-contrast look
-     above, for anyone who wants edges over ambience. ---- */
-  [data-theme="sharp"] {
+  [data-theme="purple"] {
+    --bg: #120a1c; --bg-alt: #1c1030; --surface: #1c1030; --surface-2: #241541;
+    --border: #7a5aad; --border-soft: #4a3570;
+    --text: #f3eefc; --text-dim: #c3b0dd; --text-faint: #8a76ab;
+    --accent: #b478f0; --accent-dim: #9355d1; --accent-glow: rgba(180,120,240,0.22);
+    --green: #7fdcb8; --red: #f07871; --yellow: #eec35c; --blue: #83b8e6;
+  }
+  /* ---- the "sharp" family: pure black/white, maximum border-vs-surface
+     contrast — the opposite end of the spectrum from ember's low-contrast
+     look above, for anyone who wants edges over ambience. blueSharp is
+     the app default (bound to bare `html` below) — more recognizable at
+     a glance than ember was. ---- */
+  html, [data-theme="blueSharp"] {
     --bg: #000000; --bg-alt: #0a0a0a; --surface: #000000; --surface-2: #111111;
     --border: #ffffff; --border-soft: #666666;
     --text: #ffffff; --text-dim: #cccccc; --text-faint: #999999;
     --accent: #00e5ff; --accent-dim: #00b8cc; --accent-glow: rgba(0,229,255,0.25);
     --green: #00ff85; --red: #ff3b3b; --yellow: #ffe135; --blue: #00e5ff;
+  }
+  [data-theme="purpleSharp"] {
+    --bg: #000000; --bg-alt: #0a0a0a; --surface: #000000; --surface-2: #111111;
+    --border: #ffffff; --border-soft: #666666;
+    --text: #ffffff; --text-dim: #cccccc; --text-faint: #999999;
+    --accent: #b45cff; --accent-dim: #8e3fd1; --accent-glow: rgba(180,92,255,0.25);
+    --green: #00ff85; --red: #ff3b3b; --yellow: #ffe135; --blue: #b45cff;
   }
 
   * { box-sizing: border-box; }
@@ -191,7 +207,9 @@
   .swatch.ocean { background: linear-gradient(135deg, #5fc4f5, #070f18); }
   .swatch.forest { background: linear-gradient(135deg, #7fe08b, #0a1209); }
   .swatch.light { background: linear-gradient(135deg, #d4661f, #eeebe4); }
-  .swatch.sharp { background: linear-gradient(135deg, #00e5ff, #000000); }
+  .swatch.purple { background: linear-gradient(135deg, #b478f0, #120a1c); }
+  .swatch.blueSharp { background: linear-gradient(135deg, #00e5ff, #000000); }
+  .swatch.purpleSharp { background: linear-gradient(135deg, #b45cff, #000000); }
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px; }
   .detail-grid .k { color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
   .detail-grid .v { color: var(--text); font-family: var(--mono); font-size: 12px; word-break: break-all; }
@@ -259,8 +277,15 @@ async function api(path, opts = {}) {
   return data;
 }
 
+const THEMES = ['ember', 'ocean', 'forest', 'light', 'purple', 'blueSharp', 'purpleSharp'];
 function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme && ['ember','ocean','forest','light','sharp'].includes(theme) ? theme : 'ember');
+  document.documentElement.setAttribute('data-theme', theme && THEMES.includes(theme) ? theme : 'blueSharp');
+}
+
+/** Someone in a rank with no admin-panel capabilities at all has nothing to see on Dashboard — land them on My Account instead. Only applied at login/boot, never overrides a manual tab click. */
+function hasNoCapabilities(profile) {
+  const caps = (profile && profile.capabilities) || {};
+  return !Object.values(caps).some(Boolean);
 }
 
 function toast(msg, kind) {
@@ -356,7 +381,7 @@ function continueIfNeeded() {
 
 /* ---------------- boot ---------------- */
 async function boot() {
-  applyTheme('ember');
+  applyTheme('blueSharp');
   try {
     state.branding = await api('/branding');
   } catch (e) { /* fall back to default Passport branding */ }
@@ -368,6 +393,7 @@ async function boot() {
     if (onboardingRequired) return renderOnboarding();
     if (requirePasswordChange) return renderForceChange();
     if (continueIfNeeded()) return;
+    if (hasNoCapabilities(profile)) state.view = 'account';
     render();
   } catch (e) {
     renderLogin();
@@ -383,6 +409,7 @@ function handleLoginResult(data) {
   if (data.onboardingRequired) return renderOnboarding();
   if (data.requirePasswordChange) return renderForceChange();
   if (continueIfNeeded()) return;
+  if (hasNoCapabilities(data.profile)) state.view = 'account';
   render();
 }
 
@@ -457,7 +484,14 @@ function renderForceChange() {
     try {
       await api('/account/password', { method: 'PUT', body: { newPassword: pw1.value, confirmPassword: pw2.value } });
       toast('Password updated', 'ok');
+      // account/password's own response is a bare profile — re-fetch via
+      // /session for the capabilities (and rankColor) that only that
+      // endpoint adds, so the tab list and the no-capabilities default
+      // below see the real thing instead of an empty object.
+      const { profile } = await api('/session');
+      state.profile = profile;
       if (continueIfNeeded()) return;
+      if (hasNoCapabilities(profile)) state.view = 'account';
       render();
     } catch (e) { errEl.textContent = e.message; }
   }
@@ -522,10 +556,14 @@ function renderOnboarding() {
       const body = { newPassword: pw1.value, confirmPassword: pw2.value };
       if (needsFullName && fullName.value) body.fullName = fullName.value;
       if (needsEmail && email.value) body.email = email.value;
-      const { profile: updated } = await api('/account/onboarding', { method: 'PUT', body });
-      state.profile = updated;
+      await api('/account/onboarding', { method: 'PUT', body });
       toast('Welcome aboard!', 'ok');
+      // Same reason as renderForceChange — /account/onboarding's own
+      // response has no capabilities/rankColor, only /session does.
+      const { profile } = await api('/session');
+      state.profile = profile;
       if (continueIfNeeded()) return;
+      if (hasNoCapabilities(profile)) state.view = 'account';
       render();
     } catch (e) { errEl.textContent = e.message; }
   }
@@ -681,7 +719,7 @@ async function renderAccount(content) {
     } catch (e) { toast(e.message, 'err'); }
   }
 
-  const swatches = ['ember', 'ocean', 'forest', 'light', 'sharp'].map((t) => {
+  const swatches = THEMES.map((t) => {
     const sw = el('div', { class: 'swatch ' + t + (profile.theme === t ? ' selected' : '') });
     sw.addEventListener('click', async () => {
       applyTheme(t);
