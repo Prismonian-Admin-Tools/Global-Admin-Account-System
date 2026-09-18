@@ -72,6 +72,11 @@
   }
 
   * { box-sizing: border-box; }
+  /* Belt-and-suspenders: the min-width:0 fixes above stop the layout from
+     forcing this in the first place, but nothing should ever be able to
+     make the whole PAGE scroll sideways again — a wrapper that actually
+     wants horizontal scroll (.table-scroll) declares that itself. */
+  html, body { overflow-x: hidden; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); transition: background .2s, color .2s; }
   #app { min-height: 100vh; display: flex; flex-direction: column; }
   a { color: var(--accent); }
@@ -127,7 +132,7 @@
   .hint { color: var(--text-faint); font-size: 12px; margin-top: 4px; line-height: 1.5; }
 
   /* ---- shell ---- */
-  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border-soft); background: var(--bg-alt); }
+  header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 14px 24px; border-bottom: 1px solid var(--border-soft); background: var(--bg-alt); }
   header .who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-dim); }
   .avatar-chip { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: var(--accent); flex-shrink: 0; }
   /* Colored via inline style from the rank's own `color` field (see
@@ -136,7 +141,15 @@
      here too, not just the two stock ranks that used to have one. */
   .role-pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
 
-  main { flex: 1; display: flex; }
+  /* min-width: 0 overrides a flex item's default min-width:auto — without
+     it, a flex child never shrinks below its content's natural width, so
+     one wide thing inside `content` (a table wanting to be 540px+, say)
+     pushes `content` itself wider than the space `nav` actually left it,
+     and the whole page ends up scrolling sideways instead of just that
+     one thing. This is what was actually happening on a phone-width
+     screen: not a table bug specifically, any wide content in `content`
+     would have done it. */
+  main { flex: 1; display: flex; min-width: 0; }
   nav { width: 208px; border-right: 1px solid var(--border-soft); padding: 18px 12px; background: var(--bg-alt); }
   nav .navlabel { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); padding: 4px 12px 8px; }
   nav button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; color: var(--text-dim); padding: 9px 12px; border-radius: 8px; font-weight: 600; margin-bottom: 2px; font-size: 13px; }
@@ -144,7 +157,7 @@
   nav button:hover { background: var(--surface-2); color: var(--text); }
   nav button.active { background: var(--accent-glow); color: var(--accent); }
   nav button.active svg { opacity: 1; }
-  section.content { flex: 1; padding: 30px 34px; max-width: 920px; animation: fadein .18s ease; }
+  section.content { flex: 1; min-width: 0; padding: 30px 34px; max-width: 920px; animation: fadein .18s ease; }
   @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   h2 { font-size: 19px; margin: 0 0 4px; display: flex; align-items: center; gap: 9px; }
   .pagesub { color: var(--text-faint); font-size: 13px; margin-bottom: 22px; }
@@ -160,6 +173,14 @@
   .panel h3 { margin: 0 0 14px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
   .panel h3 svg, .modal h3 svg { width: 15px; height: 15px; color: var(--accent); flex-shrink: 0; }
 
+  /* Every table gets wrapped in this (see tableWrap() below) so a row too
+     wide for a phone screen scrolls WITHIN the table instead of pushing
+     the whole page sideways — which is what was actually happening
+     before: the page's own horizontal scroll left everything but the
+     last column and the row's action button off-screen, with no visual
+     separation between the truncated text and the button next to it. */
+  .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll table { min-width: 540px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
   /* An empty cell (a locked rank with no Edit/Delete buttons, say) has
@@ -310,6 +331,9 @@ function el(tag, attrs, children) {
 }
 
 function icon(name) { return el('span', { html: ICONS[name] || '' }); }
+
+/** Wrap any <table> in this before inserting it — see the .table-scroll CSS rule for why. */
+function tableWrap(table) { return el('div', { class: 'table-scroll' }, [table]); }
 
 /**
  * A secret copied to the OS clipboard sits there until something else
@@ -670,13 +694,13 @@ async function renderDashboard(content) {
       if (activity) {
         const feed = el('div', { class: 'panel' }, [
           el('h3', {}, [icon('activity'), el('span', { text: 'Recent activity' })]),
-          el('table', {}, [
+          tableWrap(el('table', {}, [
             el('tbody', {}, activity.slice(0, 8).map((a) => el('tr', {}, [
               el('td', { style: 'width:120px', text: new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }),
               el('td', {}, [el('span', { class: 'badge', text: a.category })]),
               el('td', { text: a.message }),
             ]))),
-          ]),
+          ])),
         ]);
         content.appendChild(feed);
       }
@@ -991,10 +1015,10 @@ async function renderUsers(content) {
     users.filter((u) => u.username.toLowerCase().includes(q)).forEach((u) => tbody.appendChild(makeRow(u)));
   });
 
-  const table = el('table', {}, [
+  const table = tableWrap(el('table', {}, [
     el('thead', {}, [el('tr', {}, [el('th', { class: 'checkcol' }), ...['User', 'Role', 'Status', ''].map((h) => el('th', { text: h }))])]),
     tbody,
-  ]);
+  ]));
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('users'), el('span', { text: 'Users' })]),
     el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with Passport.` }),
@@ -1047,10 +1071,10 @@ async function renderRanks(content) {
 
   const canManage = !!(state.profile.capabilities || {}).manageRanks;
 
-  const table = el('table', {}, [
+  const table = tableWrap(el('table', {}, [
     el('thead', {}, [el('tr', {}, ['Rank', 'Capabilities', ''].map((h) => el('th', { text: h })))]),
     el('tbody', {}, ranks.map((r) => rankRow(r, capabilities, canManage))),
-  ]);
+  ]));
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('ranks'), el('span', { text: 'Ranks' })]),
@@ -1185,12 +1209,12 @@ function openImportCsvModal() {
     const text = await fileInput.files[0].text();
     parsedRows = parseCsv(text).filter((r) => r.username);
     resultsWrap.innerHTML = '';
-    resultsWrap.appendChild(el('table', {}, [
+    resultsWrap.appendChild(tableWrap(el('table', {}, [
       el('thead', {}, [el('tr', {}, ['Username', 'Role'].map((h) => el('th', { text: h })))]),
       el('tbody', {}, parsedRows.map((r) => el('tr', {}, [
         el('td', { text: r.username }), el('td', { text: r.role || 'staff' }),
       ]))),
-    ]));
+    ])));
     importBtn.disabled = false;
     importBtn.textContent = `Import ${parsedRows.length} user${parsedRows.length === 1 ? '' : 's'}`;
   });
@@ -1210,10 +1234,10 @@ function openImportCsvModal() {
       }
     }
     resultsWrap.innerHTML = '';
-    resultsWrap.appendChild(el('table', {}, [
+    resultsWrap.appendChild(tableWrap(el('table', {}, [
       el('thead', {}, [el('tr', {}, ['Result'].map((h) => el('th', { text: h })))]),
       el('tbody', {}, outcomes.map((o) => el('tr', {}, [el('td', { text: o })]))),
-    ]));
+    ])));
     if (importedCreds.length) {
       downloadBtn.style.display = 'inline-block';
       toast(`Imported ${importedCreds.length} user${importedCreds.length === 1 ? '' : 's'}`, 'ok');
@@ -1468,10 +1492,10 @@ const DARK_AUTH_METHODS = ['oauth', 'saml', 'sssd', 'kerberos'];
 async function renderApps(content) {
   const apps = await api('/apps');
   content.innerHTML = '';
-  const table = el('table', {}, [
+  const table = tableWrap(el('table', {}, [
     el('thead', {}, [el('tr', {}, ['Name', 'Slug', 'Auth method', 'Status', ''].map((h) => el('th', { text: h })))]),
     el('tbody', {}, apps.map(appRow)),
-  ]);
+  ]));
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('apps'), el('span', { text: 'Registered apps' })]),
     el('div', { class: 'pagesub', text: 'Each app gets its own appId + secret, sent as X-App-Id / X-App-Secret on every /api/v1/* request.' }),
@@ -1729,7 +1753,7 @@ async function renderActivity(content) {
   async function applyFilters() {
     const activity = await api('/activity?' + buildQuery());
     activityTableWrap.innerHTML = '';
-    activityTableWrap.appendChild(el('table', {}, [
+    activityTableWrap.appendChild(tableWrap(el('table', {}, [
       el('thead', {}, [el('tr', {}, ['When', 'Category', 'Actor', 'Message'].map((h) => el('th', { text: h })))]),
       el('tbody', {}, activity.length ? activity.map((a) => el('tr', {}, [
         el('td', { style: 'width:150px', text: new Date(a.created_at).toLocaleString() }),
@@ -1737,7 +1761,7 @@ async function renderActivity(content) {
         el('td', { text: a.actor_username || '\u2014' }),
         el('td', { text: a.message }),
       ])) : [el('tr', {}, [el('td', { colspan: '4', class: 'empty-note', text: 'No activity matches these filters.' })])]),
-    ]));
+    ])));
   }
 
   function exportCsv() {
@@ -1766,7 +1790,7 @@ async function renderActivity(content) {
 
     el('h2', { style: 'margin-top:8px' }, [icon('key'), el('span', { text: 'Failed sign-ins' })]),
     el('div', { class: 'panel' }, [
-      el('table', {}, [
+      tableWrap(el('table', {}, [
         el('thead', {}, [el('tr', {}, ['When', 'Username', 'IP', 'Reason'].map((h) => el('th', { text: h })))]),
         el('tbody', {}, failedLogins.map((f) => el('tr', {}, [
           el('td', { style: 'width:150px', text: new Date(f.created_at).toLocaleString() }),
@@ -1774,7 +1798,7 @@ async function renderActivity(content) {
           el('td', { text: f.ip || '\u2014' }),
           el('td', {}, [el('span', { class: 'badge ' + (f.reason === 'disabled' ? 'disabled' : 'warn'), text: f.reason || '\u2014' })]),
         ]))),
-      ]),
+      ])),
     ]),
   ]));
 }
@@ -1784,10 +1808,10 @@ async function renderPasswordPolicy(content) {
   const { rules, ruleTypes } = await api('/password-policy');
   content.innerHTML = '';
 
-  const table = el('table', {}, [
+  const table = tableWrap(el('table', {}, [
     el('thead', {}, [el('tr', {}, ['Rule', 'Type', 'Params', 'Enabled', ''].map((h) => el('th', { text: h })))]),
     el('tbody', {}, rules.map((r) => policyRuleRow(r))),
-  ]);
+  ]));
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('policy'), el('span', { text: 'Password Policy' })]),
