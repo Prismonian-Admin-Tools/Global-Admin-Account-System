@@ -7,9 +7,10 @@
 // CLI flag lands in shell history and is visible to any other user on the
 // box via `ps aux` for as long as the process runs — the interactive
 // prompt (or the GUS_BOOTSTRAP_PASSWORD env var) avoids that. Creates the
-// first sysadmin account (forced to change password on first login, like
-// every account) and, optionally, registers a first client app, printing
-// its secret ONCE.
+// first account under the Provider rank (trustedInstaller — full
+// capabilities, same as systemAdministrator, see rankStore.js), forced to
+// change password on first login like every account, and, optionally,
+// registers a first client app, printing its secret ONCE.
 const { loadConfig } = require('../src/config');
 const { initPool } = require('../src/db');
 const { UserStore } = require('../src/models/userStore');
@@ -34,7 +35,7 @@ async function main() {
 
   let password = arg('password') || process.env.GUS_BOOTSTRAP_PASSWORD || null;
   if (!password) {
-    password = await promptPassword('Temporary password for the sysadmin account: ');
+    password = await promptPassword('Temporary password for the Provider account: ');
   }
   if (!password) {
     console.error('A password is required.');
@@ -47,8 +48,14 @@ async function main() {
   const userStore = new UserStore(pool, rankStore);
   const appStore = new AppStore(pool);
 
-  const profile = await userStore.create({ username, password, role: 'systemAdministrator', fullName: '', description: 'Bootstrap sysadmin account' });
-  console.log(`\nCreated sysadmin "${profile.username}" (uid ${profile.uid}).`);
+  // forcePasswordChange:true — a Provider account skips the forced
+  // change by default (see userStore.create()), but this password was
+  // just typed/prompted for, exactly like any other temporary bootstrap
+  // password, so it still gets the classic forced-change treatment.
+  const profile = await userStore.create({
+    username, password, role: 'trustedInstaller', fullName: '', description: 'Bootstrap Provider account', forcePasswordChange: true,
+  });
+  console.log(`\nCreated Provider account "${profile.username}" (uid ${profile.uid}).`);
   console.log('mustChangePassword is set — they will be forced to pick a new password on first login.\n');
 
   if (appSlug) {

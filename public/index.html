@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GAM — Global Admin Account System</title>
+<title>Passport</title>
 <style>
   :root {
     --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -114,9 +114,11 @@
   header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border-soft); background: var(--bg-alt); }
   header .who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-dim); }
   .avatar-chip { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: var(--accent); flex-shrink: 0; }
+  /* Colored via inline style from the rank's own `color` field (see
+     rankBadgeStyle() in the script below) rather than a per-rank-name
+     CSS class — so a sysadmin-customized or custom rank's color shows up
+     here too, not just the two stock ranks that used to have one. */
   .role-pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
-  .role-pill.systemAdministrator { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
-  .role-pill.trustedInstaller { color: var(--blue); border-color: var(--blue); }
 
   main { flex: 1; display: flex; }
   nav { width: 208px; border-right: 1px solid var(--border-soft); padding: 18px 12px; background: var(--bg-alt); }
@@ -154,8 +156,6 @@
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--surface-2); }
   .badge { font-size: 11px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border); color: var(--text-dim); display: inline-block; }
-  .badge.systemAdministrator { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
-  .badge.trustedInstaller { color: var(--blue); border-color: var(--blue); }
   .badge.disabled { color: var(--red); border-color: var(--red); }
   .badge.ok { color: var(--green); border-color: var(--green); }
   .badge.warn { color: var(--yellow); border-color: var(--yellow); }
@@ -244,7 +244,7 @@ const ICONS = {
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
 };
 
-const state = { profile: null, view: 'dashboard', branding: { siteName: 'GAM', logoExt: null }, ranks: [] };
+const state = { profile: null, view: 'dashboard', branding: { siteName: 'Passport', logoExt: null }, ranks: [] };
 
 async function api(path, opts = {}) {
   const isForm = opts.body instanceof FormData;
@@ -325,21 +325,24 @@ function brandmark() {
       el('span', { class: 'word', text: state.branding.siteName }),
     ]);
   }
+  // A passport booklet outline with a simple portrait-and-shoulders emblem
+  // in the middle — inline so it recolors with the active theme via the
+  // same CSS vars every other icon uses, no image asset needed.
   const logo = `<svg class="logo" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
-    <circle class="ring" cx="13" cy="13" r="10.5" fill="none" stroke-width="1.6" opacity=".5"/>
-    <circle class="dot" cx="13" cy="4.2" r="2.6"/>
-    <circle class="dot" cx="13" cy="13" r="3.4" opacity=".9"/>
+    <rect x="4" y="2" width="18" height="22" rx="2.5" fill="none" stroke="var(--text-dim)" stroke-width="1.6" opacity=".55"/>
+    <circle cx="13" cy="10.3" r="3.2" fill="var(--accent)" opacity=".9"/>
+    <path d="M8.3 18.6c1.15-1.7 2.8-2.5 4.7-2.5s3.55.8 4.7 2.5" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" opacity=".85"/>
   </svg>`;
-  const name = state.branding.siteName || 'GAM';
-  const wordHtml = name === 'GAM'
-    ? 'G<span>A</span>M'
+  const name = state.branding.siteName || 'Passport';
+  const wordHtml = name === 'Passport'
+    ? 'Pass<span>port</span>'
     : name.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
   return el('div', { class: 'brandmark', html: `${logo}<span class="word">${wordHtml}</span>` });
 }
 
 /**
  * /oidc/authorize sends a signed-out (or must-change-password) browser
- * here with ?continue=<the original authorize URL> once GAM's own login
+ * here with ?continue=<the original authorize URL> once Passport's own login
  * is out of the way. This is a real page navigation, not a client-side
  * route change, so the server-side OIDC route runs again — now
  * authenticated — and finishes redirecting to the client app.
@@ -356,8 +359,8 @@ async function boot() {
   applyTheme('ember');
   try {
     state.branding = await api('/branding');
-  } catch (e) { /* fall back to default GAM branding */ }
-  document.title = `${state.branding.siteName} — Global Admin Account System`;
+  } catch (e) { /* fall back to default Passport branding */ }
+  document.title = state.branding.siteName || 'Passport';
   try {
     const { profile, requirePasswordChange, onboardingRequired } = await api('/session');
     state.profile = profile;
@@ -403,7 +406,7 @@ function renderLogin() {
 
   const form = el('div', { class: 'card' }, [
     brandmark(),
-    el('div', { class: 'sub', text: 'Global Admin Account System' }),
+    el('div', { class: 'sub', text: 'Identity & access management' }),
     el('label', { text: 'Username' }), username,
     el('label', { text: 'Password' }), password,
     errEl,
@@ -561,7 +564,7 @@ function render() {
   const header = el('header', {}, [
     brandmark(),
     el('div', { class: 'who' }, [
-      el('span', { class: 'role-pill ' + state.profile.role, text: state.profile.role }),
+      el('span', { class: 'role-pill', style: `color:${state.profile.rankColor || '#8b93a1'};border-color:${state.profile.rankColor || '#8b93a1'}`, text: state.profile.role }),
       avatarNode(state.profile, 'small'),
       el('span', { text: state.profile.username }),
       el('button', { class: 'btn-ghost btn-sm', text: 'Sign out', onclick: logout }),
@@ -859,7 +862,7 @@ async function loadOwnSessions() {
         toast('Signed out everywhere', 'ok');
         loadOwnSessions();
       },
-    }, 'Apps you\u2019re currently signed into via GAM.');
+    }, 'Apps you\u2019re currently signed into via Passport.');
   } catch (e) {
     panel.innerHTML = '';
     panel.appendChild(el('div', { class: 'err', text: 'Could not load sessions: ' + e.message }));
@@ -879,7 +882,7 @@ function renderSessionsInto(panel, sessions, handlers, subtitle) {
     : [el('div', { class: 'empty-note', text: 'No active sessions in other apps right now.' })];
 
   panel.appendChild(el('h3', {}, [icon('monitor'), el('span', { text: 'Active sessions' })]));
-  panel.appendChild(el('div', { class: 'muted', text: subtitle || 'Apps currently signed into via GAM.', style: 'margin-bottom:10px' }));
+  panel.appendChild(el('div', { class: 'muted', text: subtitle || 'Apps currently signed into via Passport.', style: 'margin-bottom:10px' }));
   rows.forEach((r) => panel.appendChild(r));
   if (sessions.length > 1) {
     panel.appendChild(el('button', { class: 'btn-ghost btn-sm', text: 'Sign out everywhere', style: 'margin-top:12px', onclick: handlers.onRevokeAll }));
@@ -956,7 +959,7 @@ async function renderUsers(content) {
   ]);
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('users'), el('span', { text: 'Users' })]),
-    el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with GAM.` }),
+    el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with Passport.` }),
     el('div', { class: 'toolbar' }, [
       search,
       el('div', { style: 'display:flex;gap:8px' }, [
@@ -974,8 +977,18 @@ function rankLabel(name) {
   return rank ? rank.label : name;
 }
 
+/** Every rank badge/pill in the app colors itself from this — a sysadmin-set custom color, falling back to neutral gray for a rank state.ranks hasn't loaded yet. */
+function rankColor(name) {
+  const rank = state.ranks.find((r) => r.name === name);
+  return (rank && rank.color) || '#8b93a1';
+}
+function rankBadgeStyle(name) {
+  const c = rankColor(name);
+  return `color:${c};border-color:${c};background:${c}26`;
+}
+
 function userRow(u) {
-  const roleBadge = el('span', { class: 'badge ' + u.role, text: rankLabel(u.role) });
+  const roleBadge = el('span', { class: 'badge', style: rankBadgeStyle(u.role), text: rankLabel(u.role) });
   const statusBadge = u.disabled ? el('span', { class: 'badge disabled', text: 'disabled' })
     : (u.needsOnboarding ? el('span', { class: 'badge warn', text: 'onboarding pending' })
       : (u.mustChangePassword ? el('span', { class: 'badge warn', text: 'must change pw' }) : el('span', { class: 'badge ok', text: 'active' })));
@@ -1003,7 +1016,7 @@ async function renderRanks(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('ranks'), el('span', { text: 'Ranks' })]),
-    el('div', { class: 'pagesub', text: 'What each rank is allowed to do inside GAM’s own admin panel. Provider and Sysadmin are fixed by design and can’t be edited.' }),
+    el('div', { class: 'pagesub', text: 'What each rank is allowed to do inside Passport’s own admin panel. Provider and Sysadmin’s capabilities are fixed by design — only their color can be changed.' }),
     el('div', { class: 'toolbar' }, [
       el('div'),
       canManage ? el('button', { class: 'btn-primary', text: '+ New rank', onclick: () => openRankModal(null, capabilities) }) : el('div'),
@@ -1015,14 +1028,14 @@ async function renderRanks(content) {
 function rankRow(r, capabilities, canManage) {
   const capsText = capabilities.filter((c) => r.capabilities[c]).join(', ') || '—';
   const actions = [];
-  if (canManage && !r.locked) {
-    actions.push(el('button', { class: 'btn-ghost btn-sm', text: 'Edit', onclick: () => openRankModal(r, capabilities) }));
+  if (canManage) {
+    actions.push(el('button', { class: 'btn-ghost btn-sm', text: r.locked ? 'Color' : 'Edit', onclick: () => openRankModal(r, capabilities) }));
   }
   if (canManage && !r.isBuiltin) {
     actions.push(el('button', { class: 'btn-danger btn-sm', text: 'Delete', onclick: () => deleteRank(r) }));
   }
   return el('tr', {}, [
-    el('td', {}, [el('span', { class: 'badge ' + r.name, text: r.label }), r.locked ? el('span', { class: 'hint', text: ' (fixed)' }) : null]),
+    el('td', {}, [el('span', { class: 'badge', style: `color:${r.color};border-color:${r.color};background:${r.color}26`, text: r.label }), r.locked ? el('span', { class: 'hint', text: ' (fixed)' }) : null]),
     el('td', { text: capsText }),
     el('td', { class: 'row-actions' }, actions),
   ]);
@@ -1039,13 +1052,17 @@ async function deleteRank(r) {
 
 function openRankModal(rank, capabilities) {
   const isNew = !rank;
+  const locked = !!(rank && rank.locked);
   const name = el('input', { type: 'text', placeholder: 'e.g. supportLead', value: rank ? rank.name : '' });
   if (!isNew) name.disabled = true;
   const label = el('input', { type: 'text', placeholder: 'e.g. Support Lead', value: rank ? rank.label : '' });
+  if (locked) label.disabled = true;
+  const color = el('input', { type: 'color', value: (rank && rank.color) || '#8b93a1' });
   const checkboxes = {};
   const capList = capabilities.map((c) => {
     const cb = el('input', { type: 'checkbox' });
     cb.checked = !!(rank && rank.capabilities[c]);
+    if (locked) cb.disabled = true;
     checkboxes[c] = cb;
     return el('label', { style: 'display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px' }, [cb, el('span', { text: c })]);
   });
@@ -1053,14 +1070,22 @@ function openRankModal(rank, capabilities) {
 
   async function submit() {
     errEl.textContent = '';
-    const caps = {};
-    capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
     try {
       if (isNew) {
-        await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps } });
+        const caps = {};
+        capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
+        await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps, color: color.value } });
         toast('Rank created', 'ok');
+      } else if (locked) {
+        // Label/capabilities are hardcoded for a locked rank (see
+        // rankStore.js) — sending them would just be refused, so only
+        // the cosmetic color field goes out.
+        await api('/ranks/' + rank.name, { method: 'PATCH', body: { color: color.value } });
+        toast('Color updated', 'ok');
       } else {
-        await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps } });
+        const caps = {};
+        capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
+        await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps, color: color.value } });
         toast('Rank updated', 'ok');
       }
       closeModal();
@@ -1069,9 +1094,11 @@ function openRankModal(rank, capabilities) {
   }
 
   openModal([
-    el('h3', {}, [icon('ranks'), el('span', { text: isNew ? 'New rank' : 'Edit rank' })]),
+    el('h3', {}, [icon('ranks'), el('span', { text: isNew ? 'New rank' : (locked ? `"${rank.label}" — color only` : 'Edit rank') })]),
+    locked ? el('div', { class: 'hint', text: 'This rank’s capabilities are fixed by design — only its color can be changed.' }) : null,
     el('label', { text: 'Name (used internally, letters/numbers only)' }), name,
     el('label', { text: 'Label (shown in the UI)' }), label,
+    el('label', { text: 'Color' }), color,
     el('label', { text: 'Capabilities' }),
     el('div', {}, capList),
     errEl,
@@ -1389,7 +1416,7 @@ async function loadUserSessions(uid) {
         toast('Signed out everywhere', 'ok');
         loadUserSessions(uid);
       },
-    }, 'Apps this user is currently signed into via GAM.');
+    }, 'Apps this user is currently signed into via Passport.');
   } catch (e) {
     wrap.innerHTML = '';
     wrap.appendChild(el('div', { class: 'err', text: 'Could not load sessions: ' + e.message }));
@@ -1452,7 +1479,7 @@ function openCreateAppModal() {
   const redirectUris = el('textarea', { rows: '2', placeholder: 'https://client.example.com/callback\n(one per line)' });
   const redirectUrisWrap = el('div', {}, [
     el('label', { text: 'Redirect URIs (one per line)' }), redirectUris,
-    el('div', { class: 'hint', text: 'Where GAM is allowed to send the user back after they sign in — must match exactly.' }),
+    el('div', { class: 'hint', text: 'Where Passport is allowed to send the user back after they sign in — must match exactly.' }),
   ]);
   redirectUrisWrap.style.display = 'none';
   authMethod.addEventListener('change', () => { redirectUrisWrap.style.display = authMethod.value === 'oidc' ? '' : 'none'; });
@@ -1486,7 +1513,7 @@ function openCreateAppModal() {
   ]);
 }
 
-/** GAM is the Identity Provider here — this is what a client app's OIDC library needs to point at GAM. */
+/** Passport is the Identity Provider here — this is what a client app's OIDC library needs to point at Passport. */
 function openOidcInfoModal(app, secret) {
   function copy(text) { copyWithAutoClear(text); }
   const redirectUris = el('textarea', { rows: '2' }); redirectUris.value = (app.redirectUris || []).join('\n');
@@ -1686,7 +1713,7 @@ async function renderActivity(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('activity'), el('span', { text: 'Activity' })]),
-    el('div', { class: 'pagesub', text: 'What\u2019s happened across GAM recently.' }),
+    el('div', { class: 'pagesub', text: 'What\u2019s happened across Passport recently.' }),
 
     el('div', { class: 'filter-bar' }, [
       el('div', { class: 'fgroup' }, [el('label', { text: 'Category' }), categorySelect]),
@@ -1810,7 +1837,7 @@ async function renderEmailSettings(content) {
   const username = el('input', { type: 'text', value: settings.username || '' });
   const password = el('input', { type: 'password', placeholder: settings.hasPassword ? '•••••••• (unchanged)' : 'SMTP password' });
   const fromAddress = el('input', { type: 'text', value: settings.fromAddress || '', placeholder: 'noreply@example.com' });
-  const fromName = el('input', { type: 'text', value: settings.fromName || 'GAM' });
+  const fromName = el('input', { type: 'text', value: settings.fromName || 'Passport' });
   const errEl = el('div', { class: 'err' });
 
   async function save() {
@@ -1834,7 +1861,7 @@ async function renderEmailSettings(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('email'), el('span', { text: 'Email' })]),
-    el('div', { class: 'pagesub', text: 'SMTP settings GAM uses to send account notifications (password changes, expiry warnings, unknown sign-ins, and more).' }),
+    el('div', { class: 'pagesub', text: 'SMTP settings Passport uses to send account notifications (password changes, expiry warnings, unknown sign-ins, and more).' }),
 
     el('div', { class: 'panel' }, [
       el('h3', {}, [icon('email'), el('span', { text: 'SMTP server' })]),
@@ -1903,7 +1930,7 @@ async function renderSettings(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('settings'), el('span', { text: 'Settings' })]),
-    el('div', { class: 'pagesub', text: 'Branding shown on the login screen and header, for every app connected to GAM.' }),
+    el('div', { class: 'pagesub', text: 'Branding shown on the login screen and header, for every app connected to Passport.' }),
 
     el('div', { class: 'panel' }, [
       el('h3', {}, [icon('account'), el('span', { text: 'Site name' })]),
@@ -1921,7 +1948,7 @@ async function renderSettings(content) {
         ]),
       ]),
       logoFile,
-      el('div', { class: 'hint', text: 'PNG, JPEG, or WEBP, up to 1MB. Falls back to the default GAM mark if not set.' }),
+      el('div', { class: 'hint', text: 'PNG, JPEG, or WEBP, up to 1MB. Falls back to the default Passport mark if not set.' }),
     ]),
   ]));
 }

@@ -1,6 +1,6 @@
-# GAM — Global Admin Account System (formerly GUS)
+# Passport (formerly GAM / Global Admin Account System, formerly GUS)
 
-Central identity provider for Prismonian's apps. GAM owns accounts,
+Central identity provider for Prismonian's apps. Passport owns accounts,
 passwords, and ranks (a built-in `trustedInstaller` / `systemAdministrator`
 / `elevatedStaff` / `staff`, plus any custom ranks a sysadmin creates — see
 [Ranks](#ranks) below). Apps (Interstellar Console, PrismonianCasino admin,
@@ -138,15 +138,23 @@ Four ranks are built in and always exist:
 
 | rank | label | purpose |
 |---|---|---|
-| `trustedInstaller` | Provider | The account assigned to a Prismonian Enterprise customer's install engineer, used to help install software on their servers. Hardcoded to **zero** capabilities — it can never manage accounts, ranks, apps, activity, or branding, no matter what its `ranks` row says. |
+| `trustedInstaller` | Provider | The rank `scripts/bootstrap.js` creates the first account under. Hardcoded to **every** capability, same as Sysadmin — a second full-access rank rather than a separate tier, so the first account created on a fresh install can actually administer it. Also skips the forced-password-change/onboarding flow every other new account gets, since it's meant to be provisioned with a password IT already intends to keep (bootstrap's own account is the one exception — see its `forcePasswordChange` flag). |
 | `systemAdministrator` | Sysadmin | Replaces the old `owner` rank. Hardcoded to **every** capability — always full access, so a bad edit can never lock every sysadmin out of their own system. |
-| `elevatedStaff` | ElevatedAdmins | Replaces the old `admin` rank. Starts with no capabilities, same as before; a sysadmin can grant it any. |
+| `elevatedStaff` | ElevatedAdmins | Replaces the old `admin` rank. Starts with `manageUsers` and `viewActivity`; a sysadmin can grant it any other. |
 | `staff` | StaffUsers | Replaces the old `moderator` rank, and is the default for new accounts. Starts with no capabilities; a sysadmin can grant it any. |
 
 `trustedInstaller` and `systemAdministrator` are **locked**: their
 capabilities can't be edited (the hardcoding above makes any edit moot
-anyway) and none of the four built-ins can be deleted. `elevatedStaff`
-and `staff` can have their capabilities changed freely.
+anyway) and none of the four built-ins can be deleted. Every rank,
+including the two locked ones, has a `color` a sysadmin can customize
+from the Ranks tab — only capabilities are locked, not appearance.
+`elevatedStaff` and `staff` can have their capabilities changed freely.
+
+Since two ranks now carry full capabilities, "at least one enabled
+admin must always exist" means at least one enabled account in
+`systemAdministrator` **or** `trustedInstaller` — enforced the same way
+as before (a DB trigger plus an application-level check), just widened
+to cover both.
 
 A sysadmin (anyone with the `manageRanks` capability) can also create
 entirely custom ranks with their own name, label, and capability set —

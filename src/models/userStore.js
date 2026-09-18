@@ -2,6 +2,7 @@
 const passwords = require('../utils/passwords');
 const { simhash64 } = require('../utils/passwordPolicy');
 const { isUuid } = require('../utils/uuid');
+const { FULL_CAPABILITY_RANKS } = require('./rankStore');
 
 // Column -> API field name mapping. This is the ONLY place that decides
 // what "all their user data" means when handed to an app — never include
@@ -149,12 +150,15 @@ class UserStore {
   /**
    * New accounts always start forced to change their password and routed
    * through the onboarding wizard — no flag to opt out of this — with one
-   * hardcoded exception: trustedInstaller accounts belong to an install
-   * engineer, not a new hire, and are provisioned with a password IT
-   * already intends to keep using, so they skip both. Writes span three
-   * tables, so it's one transaction.
+   * hardcoded exception: trustedInstaller (Provider) accounts are
+   * provisioned with a password IT already intends to keep using, so
+   * they skip both by default. forcePasswordChange overrides that back
+   * on for the one caller that still wants the classic
+   * temporary-password flow even for a Provider account: bootstrap.js,
+   * whose password is typed/prompted fresh every time, not pre-chosen.
+   * Writes span three tables, so it's one transaction.
    */
-  async create({ username, password, role, fullName, description, email }) {
+  async create({ username, password, role, fullName, description, email, forcePasswordChange = false }) {
     if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
     if (!username || !username.trim()) throw new Error('Username is required');
     if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
@@ -162,7 +166,7 @@ class UserStore {
     const existing = await this.findByUsername(username);
     if (existing) throw new Error('A user with that username already exists');
 
-    const skipOnboarding = role === 'trustedInstaller';
+    const skipOnboarding = role === 'trustedInstaller' && !forcePasswordChange;
 
     const client = await this.pool.connect();
     let uid;
@@ -368,9 +372,15 @@ class UserStore {
     return rows.length === 0;
   }
 
-  /** Guards against locking everyone out — there must always be at least one enabled sysadmin. */
-  async countSysadmins() {
-    const { rows } = await this.pool.query("SELECT count(*)::int AS n FROM userdata WHERE role = 'systemAdministrator' AND disabled = false");
+  /**
+   * Guards against locking everyone out — there must always be at least
+   * one enabled account in a full-capability rank (systemAdministrator
+   * OR trustedInstaller/Provider — see rankStore.FULL_CAPABILITY_RANKS).
+   */
+  async countFullAdmins() {
+    const { rows } = await this.pool.query(
+      'SELECT count(*)::int AS n FROM userdata WHERE role = ANY($1) AND disabled = false', [FULL_CAPABILITY_RANKS]
+    );
     return rows[0].n;
   }
 

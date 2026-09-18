@@ -1,7 +1,7 @@
 {
   "name": "gus",
   "version": "2.0.0",
-  "description": "Global Admin Account System (GAM, formerly GUS) — central identity provider for Prismonian apps (owns accounts, ranks, and login; apps keep their own fine-grained data keyed by uid).",
+  "description": "Passport (formerly GAM/Global Admin Account System, formerly GUS) — central identity provider for Prismonian apps (owns accounts, ranks, and login; apps keep their own fine-grained data keyed by uid).",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {

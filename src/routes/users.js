@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const { asyncHandler } = require('../middleware/asyncHandler');
+const { FULL_CAPABILITY_RANKS } = require('../models/rankStore');
 
 module.exports = function usersRoutes({ userStore, rankStore, sessionStore, activityLog, mfaStore }) {
   const router = express.Router();
@@ -41,11 +42,12 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
       const target = await userStore.findByUid(req.params.uid);
       if (!target) throw new Error('No such user');
 
-      // Don't let the last sysadmin demote or disable themselves-into-nothing.
-      const demotingOrDisabling = (body.role && body.role !== 'systemAdministrator') || body.disabled === true;
-      if (target.role === 'systemAdministrator' && demotingOrDisabling) {
-        const sysadmins = await userStore.countSysadmins();
-        if (sysadmins <= 1) throw new Error('Cannot remove the last remaining sysadmin account');
+      // Don't let the last full-capability admin (systemAdministrator OR
+      // trustedInstaller/Provider) demote or disable themselves-into-nothing.
+      const demotingOrDisabling = (body.role && !FULL_CAPABILITY_RANKS.includes(body.role)) || body.disabled === true;
+      if (FULL_CAPABILITY_RANKS.includes(target.role) && demotingOrDisabling) {
+        const admins = await userStore.countFullAdmins();
+        if (admins <= 1) throw new Error('Cannot remove the last remaining admin account');
       }
 
       if (body.role) {
@@ -93,8 +95,8 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
     try {
       const target = await userStore.findByUid(req.params.uid);
       if (!target) throw new Error('No such user');
-      if (target.role === 'systemAdministrator' && (await userStore.countSysadmins()) <= 1) {
-        throw new Error('Cannot delete the last remaining sysadmin account');
+      if (FULL_CAPABILITY_RANKS.includes(target.role) && (await userStore.countFullAdmins()) <= 1) {
+        throw new Error('Cannot delete the last remaining admin account');
       }
       await userStore.remove(req.params.uid);
       await sessionStore.revokeAllForUser(req.params.uid);

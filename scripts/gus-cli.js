@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const { loadConfig } = require('../src/config');
 const { initPool } = require('../src/db');
 const { UserStore } = require('../src/models/userStore');
-const { RankStore, CAPABILITIES } = require('../src/models/rankStore');
+const { RankStore, CAPABILITIES, FULL_CAPABILITY_RANKS } = require('../src/models/rankStore');
 const { AppStore } = require('../src/models/appStore');
 const { SessionStore } = require('../src/models/sessionStore');
 const { FailedLoginStore } = require('../src/models/failedLoginStore');
@@ -244,8 +244,8 @@ async function main() {
       console.log(`Renamed to "${renamed.username}".`);
     } else if (sub === 'delete') {
       const user = await requireUser(positional[0]);
-      if (user.role === 'systemAdministrator' && (await userStore.countSysadmins()) <= 1) {
-        console.error('Cannot delete the last remaining sysadmin account.'); process.exit(1);
+      if (FULL_CAPABILITY_RANKS.includes(user.role) && (await userStore.countFullAdmins()) <= 1) {
+        console.error('Cannot delete the last remaining admin account.'); process.exit(1);
       }
       await userStore.remove(user.uid);
       await sessionStore.revokeAllForUser(user.uid);

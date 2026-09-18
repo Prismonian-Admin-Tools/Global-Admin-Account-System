@@ -15,16 +15,19 @@ const CAPABILITY_COLUMNS = {
   manageEmail: 'manage_email',
 };
 
-// These two ranks are hardcoded rather than trusted from the database
-// row: systemAdministrator must never be lockable-out-of-its-own-system
-// by a bad UPDATE, and trustedInstaller must never be able to pick up
-// account-management capabilities, since "cannot manage accounts" is the
-// entire point of that rank. Their `ranks` rows exist so they show up
-// normally in listings, but their capabilities are decided here.
+// Both hardcoded rather than trusted from the database row, so neither
+// can be lockable-out-of-its-own-purpose by a bad UPDATE: systemAdministrator
+// must never lose a capability, and trustedInstaller ("Provider" — the
+// account bootstrap.js creates) must always have every one, the same
+// guarantee systemAdministrator gets. Their `ranks` rows exist so they
+// show up normally in listings (and can still have their COLOR
+// customized, see update() below), but capabilities are decided here.
 const HARDCODED_CAPABILITIES = {
   systemAdministrator: CAPABILITIES.reduce((acc, c) => ({ ...acc, [c]: true }), {}),
-  trustedInstaller: CAPABILITIES.reduce((acc, c) => ({ ...acc, [c]: false }), {}),
+  trustedInstaller: CAPABILITIES.reduce((acc, c) => ({ ...acc, [c]: true }), {}),
 };
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 function toRank(row) {
   if (!row) return null;
@@ -35,6 +38,7 @@ function toRank(row) {
     label: row.label,
     isBuiltin: row.is_builtin,
     locked: row.locked,
+    color: row.color,
     capabilities: HARDCODED_CAPABILITIES[row.name] || capabilities,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -77,11 +81,12 @@ class RankStore {
     return CAPABILITIES.reduce((acc, c) => ({ ...acc, [c]: false }), {});
   }
 
-  async create({ name, label, capabilities = {} }) {
+  async create({ name, label, capabilities = {}, color }) {
     if (!name || !/^[A-Za-z][A-Za-z0-9]*$/.test(name)) {
       throw new Error('Rank name must start with a letter and contain only letters and numbers');
     }
     if (!label || !label.trim()) throw new Error('Rank label is required');
+    if (color !== undefined && !HEX_COLOR.test(color)) throw new Error('Color must be a hex value like #ff8a3d');
     if (await this.exists(name)) throw new Error('A rank with that name already exists');
 
     const columns = ['name', 'label'];
@@ -90,6 +95,7 @@ class RankStore {
       columns.push(CAPABILITY_COLUMNS[cap]);
       values.push(!!capabilities[cap]);
     }
+    if (color !== undefined) { columns.push('color'); values.push(color); }
     const placeholders = columns.map((_, i) => `$${i + 1}`);
     const { rows } = await this.pool.query(
       `INSERT INTO ranks (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
@@ -98,10 +104,19 @@ class RankStore {
     return toRank(rows[0]);
   }
 
-  async update(name, { label, capabilities }) {
+  /**
+   * label/capabilities are refused on a locked rank (systemAdministrator,
+   * trustedInstaller) — those are hardcoded in this file, so a DB edit
+   * would just be lying about what the rank actually does. color is
+   * cosmetic, not a capability, so it's exempt: a sysadmin can restyle
+   * even a locked rank's badge.
+   */
+  async update(name, { label, capabilities, color }) {
     const rank = await this.findByName(name);
     if (!rank) throw new Error('No such rank');
-    if (rank.locked) throw new Error(`"${rank.label}" is a protected rank and can't be modified`);
+    if (rank.locked && (label !== undefined || capabilities !== undefined)) {
+      throw new Error(`"${rank.label}" is a protected rank and its capabilities can't be modified`);
+    }
 
     const sets = [];
     const values = [];
@@ -118,6 +133,11 @@ class RankStore {
           values.push(!!capabilities[cap]);
         }
       }
+    }
+    if (color !== undefined) {
+      if (!HEX_COLOR.test(color)) throw new Error('Color must be a hex value like #ff8a3d');
+      sets.push(`color = $${i++}`);
+      values.push(color);
     }
     if (!sets.length) return rank;
 
@@ -142,4 +162,12 @@ class RankStore {
   }
 }
 
-module.exports = { RankStore, CAPABILITIES };
+// The ranks with every capability hardcoded true — "at least one enabled
+// account in one of these ranks must always exist" is the actual invariant
+// behind "last remaining sysadmin" protections (userStore.countFullAdmins,
+// the users.js routes, and the enforce_min_one_sysadmin DB trigger), now
+// that trustedInstaller (Provider) is a second full-access rank alongside
+// systemAdministrator.
+const FULL_CAPABILITY_RANKS = Object.keys(HARDCODED_CAPABILITIES);
+
+module.exports = { RankStore, CAPABILITIES, FULL_CAPABILITY_RANKS };

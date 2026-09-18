@@ -17,7 +17,8 @@ module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore
   const router = express.Router();
 
   async function withCapabilities(profile) {
-    return { ...profile, capabilities: await rankStore.capabilitiesFor(profile.role) };
+    const rank = await rankStore.findByName(profile.role);
+    return { ...profile, capabilities: await rankStore.capabilitiesFor(profile.role), rankColor: rank ? rank.color : null };
   }
 
   /**
