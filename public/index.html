@@ -79,17 +79,21 @@
   html, body { overflow-x: hidden; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); transition: background .2s, color .2s; }
   /* A toned-down echo of the login screen's own glow (.center-screen::before
-     below, opacity .8) behind the signed-in app too — negative z-index so it
-     sits under #app's normal-flow content, and only actually shows through
-     where a child has no opaque background of its own (section.content is
-     transparent; header/nav aren't, so they stay fully legible). */
+     below, opacity .8) behind the signed-in app too. Deliberately non-negative
+     z-index, same as .center-screen/.card below — a fixed+negative-z-index
+     layer with no positioned ancestor can fail to composite at all on weak/
+     blocklisted GPUs (it never paints, though it's fine on a capable GPU), so
+     #app gets its own stacking context above this instead of pushing the glow
+     below zero. Only actually shows through where a child has no opaque
+     background of its own (section.content is transparent; header/nav aren't,
+     so they stay fully legible). */
   body::before {
-    content: ''; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+    content: ''; position: fixed; inset: -10%; z-index: 0; pointer-events: none;
     background: radial-gradient(circle at 25% 15%, var(--accent-glow), transparent 50%),
                 radial-gradient(circle at 85% 85%, var(--accent-glow), transparent 45%);
     opacity: .2;
   }
-  #app { min-height: 100vh; display: flex; flex-direction: column; }
+  #app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
   a { color: var(--accent); }
   ::selection { background: var(--accent-glow); }
 
@@ -654,20 +658,11 @@ function renderOnboarding() {
 }
 
 /* ---------------- automatic logoff ---------------- */
-// Two independent triggers, either one signs the session out: sitting idle
-// for 10 minutes, or the device having gone to sleep. There's no direct
-// "the OS suspended" event available to a web page — the trick is that a
-// setInterval simply stops firing while the machine is asleep and then
-// fires once, late, on wake, so a heartbeat tick whose actual gap from the
-// last one is far bigger than the interval itself means the time in
-// between wasn't spent running normally. The threshold is well above
-// ordinary background-tab timer throttling (~1 tick/minute in most
-// browsers) so switching tabs for a bit doesn't trip it.
-const AUTO_LOGOFF_IDLE_MS = 10 * 60 * 1000;
+// Signs the session out after sitting idle for 5 minutes.
+const AUTO_LOGOFF_IDLE_MS = 5 * 60 * 1000;
 const AUTO_LOGOFF_HEARTBEAT_MS = 15 * 1000;
-const AUTO_LOGOFF_SLEEP_GAP_MS = 90 * 1000;
 const AUTO_LOGOFF_ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
-let autoLogoff = null; // { timer, lastActivityAt, lastHeartbeatAt } while signed in, else null
+let autoLogoff = null; // { timer, lastActivityAt } while signed in, else null
 
 function markAutoLogoffActivity() {
   if (autoLogoff) autoLogoff.lastActivityAt = Date.now();
@@ -684,18 +679,12 @@ async function triggerAutoLogoff(message) {
 function startAutoLogoff() {
   if (autoLogoff) return;
   const now = Date.now();
-  autoLogoff = { lastActivityAt: now, lastHeartbeatAt: now, timer: null };
+  autoLogoff = { lastActivityAt: now, timer: null };
   AUTO_LOGOFF_ACTIVITY_EVENTS.forEach((evt) => window.addEventListener(evt, markAutoLogoffActivity, { passive: true }));
   autoLogoff.timer = setInterval(() => {
     const tick = Date.now();
-    const gap = tick - autoLogoff.lastHeartbeatAt;
-    autoLogoff.lastHeartbeatAt = tick;
-    if (gap > AUTO_LOGOFF_SLEEP_GAP_MS) {
-      triggerAutoLogoff('Signed out automatically — this device went to sleep.');
-      return;
-    }
     if (tick - autoLogoff.lastActivityAt >= AUTO_LOGOFF_IDLE_MS) {
-      triggerAutoLogoff('Signed out automatically after 10 minutes of inactivity.');
+      triggerAutoLogoff('Signed out automatically after 5 minutes of inactivity.');
     }
   }, AUTO_LOGOFF_HEARTBEAT_MS);
 }
