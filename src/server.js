@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const session = require('express-session');
+const pgSessionStore = require('connect-pg-simple')(session);
 const path = require('path');
 
 const { loadConfig } = require('./config');
@@ -18,11 +19,13 @@ const { KnownLoginStore } = require('./models/knownLoginStore');
 const { OidcKeyStore } = require('./models/oidcKeyStore');
 const { OidcCodeStore } = require('./models/oidcCodeStore');
 const { MfaStore } = require('./models/mfaStore');
+const { MfaChallengeStore } = require('./models/mfaChallengeStore');
 const { Mailer } = require('./utils/mailer');
 const { runPasswordExpirySweep } = require('./jobs/passwordExpirySweep');
 
 const { requireApp } = require('./middleware/appAuth');
 const { perAppRateLimit } = require('./middleware/rateLimit');
+const { securityHeaders } = require('./middleware/securityHeaders');
 const { requireAuth, requireCapability, requireAnyCapability, requireGoodStanding } = require('./middleware/frontendAuth');
 
 const apiV1Routes = require('./routes/apiV1');
@@ -40,13 +43,16 @@ const mfaRoutes = require('./routes/mfa');
 
 const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const OIDC_CODE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+const FAILED_LOGIN_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const FAILED_LOGIN_RETENTION_DAYS = 90;
+const MFA_CHALLENGE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 
 async function main() {
   const config = loadConfig();
   const pool = initPool(config.database);
 
   const rankStore = new RankStore(pool);
-  const emailSettingsStore = new EmailSettingsStore(pool, config.server.sessionSecret);
+  const emailSettingsStore = new EmailSettingsStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
   const mailer = new Mailer(emailSettingsStore);
   const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
@@ -56,9 +62,10 @@ async function main() {
   const siteSettingsStore = new SiteSettingsStore(pool);
   const passwordPolicyStore = new PasswordPolicyStore(pool);
   const knownLoginStore = new KnownLoginStore(pool);
-  const oidcKeyStore = new OidcKeyStore(pool);
+  const oidcKeyStore = new OidcKeyStore(pool, config.server.encryptionKey);
   const oidcCodeStore = new OidcCodeStore(pool);
-  const mfaStore = new MfaStore(pool, config.server.sessionSecret);
+  const mfaStore = new MfaStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
+  const mfaChallengeStore = new MfaChallengeStore(pool);
 
   if (await userStore.isEmpty()) {
     console.warn('\n⚠  No users exist yet in the GAM database.');
@@ -80,6 +87,18 @@ async function main() {
   // checks expires_at) — this just keeps the table from growing forever.
   setInterval(() => oidcCodeStore.deleteExpired().catch((err) => console.error('OIDC code cleanup failed:', err.message)), OIDC_CODE_CLEANUP_INTERVAL_MS);
 
+  // failed_logins gets a row on every bad attempt from anyone, with no
+  // authentication at all — bounds how long those accumulate for.
+  setInterval(
+    () => failedLoginStore.deleteOlderThan(FAILED_LOGIN_RETENTION_DAYS).catch((err) => console.error('Failed-login cleanup failed:', err.message)),
+    FAILED_LOGIN_CLEANUP_INTERVAL_MS
+  );
+
+  // Expired MFA challenge tickets are already unusable (takeAttempt checks
+  // expires_at) — same as the OIDC code cleanup above, this just keeps the
+  // table from growing forever.
+  setInterval(() => mfaChallengeStore.deleteExpired().catch((err) => console.error('MFA challenge cleanup failed:', err.message)), MFA_CHALLENGE_CLEANUP_INTERVAL_MS);
+
   const app = express();
   // Trusting X-Forwarded-For unconditionally (this used to be a bare `1`)
   // lets anyone reaching GAM directly set their own req.ip on every
@@ -89,8 +108,18 @@ async function main() {
   // (nginx, Caddy, etc. all do) should set server.trustProxy in
   // config.yml to how many proxy hops to trust — see the example file.
   app.set('trust proxy', config.server.trustProxy ?? false);
+  app.use(securityHeaders());
   app.use(express.json());
   app.use(session({
+    // express-session's default MemoryStore is explicitly not fit for
+    // production (the library's own warning): every session lost on
+    // restart, no sharing across more than one process. Backed by
+    // Postgres instead, in the frontend_sessions table (migration 008)
+    // — distinct from the existing `sessions` table, which holds opaque
+    // tokens issued to client apps, a different thing entirely.
+    store: new pgSessionStore({ pool, tableName: 'frontend_sessions', createTableIfMissing: false }),
+    // Default 'connect.sid' is a minor stack-fingerprinting tell.
+    name: 'gam.sid',
     secret: config.server.sessionSecret,
     resave: false,
     saveUninitialized: false,
@@ -106,7 +135,7 @@ async function main() {
     '/api/v1',
     requireApp(appStore),
     perAppRateLimit(config.rateLimit.perApp),
-    apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer })
+    apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer, mfaStore, mfaChallengeStore })
   );
 
   /* =========================================================
@@ -126,18 +155,18 @@ async function main() {
    * routes carry their own requireAuth+requireCapability internally — see
    * routes/branding.js.
    * ========================================================= */
-  app.use('/api', brandingRoutes({ config, rankStore, siteSettingsStore, activityLog }));
-  app.use('/api', sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog, knownLoginStore, mailer }));
+  app.use('/api', brandingRoutes({ config, rankStore, userStore, siteSettingsStore, activityLog }));
+  app.use('/api', sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog, knownLoginStore, mailer, mfaStore, mfaChallengeStore }));
   app.use('/api', requireAuth);
   app.use('/api', requireGoodStanding(userStore));
   app.use('/api', accountRoutes({ config, userStore, passwordPolicyStore, sessionStore, activityLog }));
   app.use('/api', mfaRoutes({ userStore, mfaStore }));
-  app.use('/api', requireCapability(rankStore, 'manageUsers'), usersRoutes({ userStore, rankStore, sessionStore, activityLog }));
-  app.use('/api', ranksRoutes({ rankStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, caps) }));
-  app.use('/api', requireCapability(rankStore, 'manageApps'), appsRoutes({ appStore, userStore, activityLog }));
-  app.use('/api', requireCapability(rankStore, 'viewActivity'), activityRoutes({ activityLog, failedLoginStore }));
-  app.use('/api', requireCapability(rankStore, 'managePasswordPolicy'), passwordPolicyRoutes({ passwordPolicyStore, activityLog }));
-  app.use('/api', requireCapability(rankStore, 'manageEmail'), emailRoutes({ emailSettingsStore, mailer, userStore, activityLog }));
+  app.use('/api', requireCapability(rankStore, userStore, 'manageUsers'), usersRoutes({ userStore, rankStore, sessionStore, activityLog, mfaStore }));
+  app.use('/api', ranksRoutes({ rankStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, userStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, userStore, caps) }));
+  app.use('/api', requireCapability(rankStore, userStore, 'manageApps'), appsRoutes({ appStore, userStore, activityLog }));
+  app.use('/api', requireCapability(rankStore, userStore, 'viewActivity'), activityRoutes({ activityLog, failedLoginStore }));
+  app.use('/api', requireCapability(rankStore, userStore, 'managePasswordPolicy'), passwordPolicyRoutes({ passwordPolicyStore, activityLog }));
+  app.use('/api', requireCapability(rankStore, userStore, 'manageEmail'), emailRoutes({ emailSettingsStore, mailer, userStore, activityLog }));
 
   app.use('/avatars', express.static(config.avatars.directory));
   app.use('/branding', express.static(`${config.avatars.directory}/../branding`));

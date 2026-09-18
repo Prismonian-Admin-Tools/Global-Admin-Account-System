@@ -2,6 +2,7 @@
 const passwords = require('../utils/passwords');
 const { simhash64 } = require('../utils/passwordPolicy');
 const { isUuid } = require('../utils/uuid');
+const { FULL_CAPABILITY_RANKS } = require('./rankStore');
 
 // Column -> API field name mapping. This is the ONLY place that decides
 // what "all their user data" means when handed to an app — never include
@@ -29,10 +30,35 @@ function toProfile(row) {
     lastLogin: row.last_login,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    // Dormant — see src/models/mfaStore.js. Exposed so admins can see
-    // who's enrolled; nothing at login checks this yet.
+    // See src/models/mfaStore.js / mfaChallengeStore.js for the login-time
+    // check this feeds. Exposed here so admins can see who's enrolled.
     mfaEnabled: row.mfa_enabled,
+    // See migration 009 — cleared together with mustChangePassword once
+    // the new-hire onboarding wizard is completed (PUT /account/onboarding).
+    needsOnboarding: row.needs_onboarding,
   };
+}
+
+/**
+ * The profile shape handed to CALLING APPS — login/validate/change-
+ * password/update-profile — same as toProfile() minus mfaEnabled and
+ * needsOnboarding. MFA is dormant (see mfaStore.js): nothing at login
+ * actually checks it, and GAM's own frontend discloses that directly to
+ * the enrolling user, but a third-party app has no equivalent signal and
+ * could reasonably treat mfaEnabled: true as meaning the session was
+ * second-factor-verified. needsOnboarding is purely a GAM-frontend
+ * concept (name/avatar/password wizard, see migration 009) with no
+ * documented meaning for a consuming app. Both omitted here rather than
+ * documented-only, so apps can't build on a signal that isn't theirs.
+ */
+function omitMfaEnabled(profile) {
+  if (!profile) return null;
+  const { mfaEnabled, needsOnboarding, ...rest } = profile;
+  return rest;
+}
+
+function toAppProfile(row) {
+  return omitMfaEnabled(toProfile(row));
 }
 
 function isPasswordExpired(row) {
@@ -53,7 +79,7 @@ const JOINED_SELECT = `
          p.password_hash, p.password_simhash, p.must_change_password, p.cannot_change_password,
          p.password_never_expires, p.password_expires_at, p.mfa_enabled,
          d.role, d.full_name, d.description, d.email, d.disabled, d.theme, d.avatar_ext, d.last_login,
-         d.updated_at
+         d.needs_onboarding, d.updated_at
   FROM users u
   JOIN usernames un ON un.uid = u.uid
   JOIN passwords p ON p.uid = u.uid
@@ -83,8 +109,16 @@ class UserStore {
     return rows[0] || null;
   }
 
-  async list() {
-    const { rows } = await this.pool.query(`${JOINED_SELECT} ORDER BY un.username ASC`);
+  // Capped even with no explicit limit — this had no bound at all before,
+  // an unbounded query and payload that only gets worse as the user count
+  // grows. 500 is generous for the admin Users tab's normal use; a caller
+  // that actually needs to page through more passes limit/offset itself.
+  async list({ limit = 500, offset = 0 } = {}) {
+    const cappedLimit = Math.min(Math.max(1, Number(limit) || 500), 500);
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const { rows } = await this.pool.query(
+      `${JOINED_SELECT} ORDER BY un.username ASC LIMIT $1 OFFSET $2`, [cappedLimit, safeOffset]
+    );
     return rows.map(toProfile);
   }
 
@@ -113,14 +147,26 @@ class UserStore {
     return { status, user };
   }
 
-  /** New accounts always start forced to change their password — no flag to opt out of this. Writes span three tables, so it's one transaction. */
-  async create({ username, password, role, fullName, description, email }) {
+  /**
+   * New accounts always start forced to change their password and routed
+   * through the onboarding wizard — no flag to opt out of this — with one
+   * hardcoded exception: trustedInstaller (Provider) accounts are
+   * provisioned with a password IT already intends to keep using, so
+   * they skip both by default. forcePasswordChange overrides that back
+   * on for the one caller that still wants the classic
+   * temporary-password flow even for a Provider account: bootstrap.js,
+   * whose password is typed/prompted fresh every time, not pre-chosen.
+   * Writes span three tables, so it's one transaction.
+   */
+  async create({ username, password, role, fullName, description, email, forcePasswordChange = false }) {
     if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
     if (!username || !username.trim()) throw new Error('Username is required');
     if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
 
     const existing = await this.findByUsername(username);
     if (existing) throw new Error('A user with that username already exists');
+
+    const skipOnboarding = role === 'trustedInstaller' && !forcePasswordChange;
 
     const client = await this.pool.connect();
     let uid;
@@ -130,12 +176,12 @@ class UserStore {
       uid = rows[0].uid;
       await client.query('INSERT INTO usernames (uid, username) VALUES ($1, $2)', [uid, username.trim()]);
       await client.query(
-        'INSERT INTO passwords (uid, password_hash, password_simhash, must_change_password) VALUES ($1, $2, $3, true)',
-        [uid, passwords.hash(password), simhash64(password)]
+        'INSERT INTO passwords (uid, password_hash, password_simhash, must_change_password) VALUES ($1, $2, $3, $4)',
+        [uid, passwords.hash(password), simhash64(password), !skipOnboarding]
       );
       await client.query(
-        'INSERT INTO userdata (uid, role, full_name, description, email) VALUES ($1, $2, $3, $4, $5)',
-        [uid, role, fullName || '', description || '', email || null]
+        'INSERT INTO userdata (uid, role, full_name, description, email, needs_onboarding) VALUES ($1, $2, $3, $4, $5, $6)',
+        [uid, role, fullName || '', description || '', email || null, !skipOnboarding]
       );
       await client.query('COMMIT');
     } catch (err) {
@@ -193,10 +239,19 @@ class UserStore {
       );
     }
 
+    // Mirrors the mutual-exclusion normalization in update() below: forcing
+    // a change (mustChange true) and forbidding the user from ever
+    // changing their own password are contradictory — without this, an
+    // admin/CLI reset with keepMustChangeFlag on an account that already
+    // has cannot_change_password set produces both flags true at once,
+    // which permanently locks that user out (forced into the change
+    // screen, but every change attempt 403s on cannot_change_password).
+    const mustChange = !clearMustChange;
     await this.pool.query(
-      `UPDATE passwords SET password_hash = $1, password_simhash = $2, must_change_password = $3, updated_at = now()
+      `UPDATE passwords SET password_hash = $1, password_simhash = $2, must_change_password = $3,
+         cannot_change_password = CASE WHEN $3 THEN false ELSE cannot_change_password END, updated_at = now()
        WHERE uid = $4`,
-      [passwords.hash(newPassword), simhash64(newPassword), !clearMustChange, uid]
+      [passwords.hash(newPassword), simhash64(newPassword), mustChange, uid]
     );
     await this.pool.query('DELETE FROM password_expiry_notices WHERE uid = $1', [uid]);
 
@@ -243,6 +298,7 @@ class UserStore {
     const userdataEditable = {
       fullName: 'full_name', description: 'description', theme: 'theme',
       email: 'email', disabled: 'disabled', avatarExt: 'avatar_ext',
+      needsOnboarding: 'needs_onboarding',
     };
     const passwordEditable = {
       mustChangePassword: 'must_change_password', cannotChangePassword: 'cannot_change_password',
@@ -316,9 +372,15 @@ class UserStore {
     return rows.length === 0;
   }
 
-  /** Guards against locking everyone out — there must always be at least one enabled sysadmin. */
-  async countSysadmins() {
-    const { rows } = await this.pool.query("SELECT count(*)::int AS n FROM userdata WHERE role = 'systemAdministrator' AND disabled = false");
+  /**
+   * Guards against locking everyone out — there must always be at least
+   * one enabled account in a full-capability rank (systemAdministrator
+   * OR trustedInstaller/Provider — see rankStore.FULL_CAPABILITY_RANKS).
+   */
+  async countFullAdmins() {
+    const { rows } = await this.pool.query(
+      'SELECT count(*)::int AS n FROM userdata WHERE role = ANY($1) AND disabled = false', [FULL_CAPABILITY_RANKS]
+    );
     return rows[0].n;
   }
 
@@ -350,4 +412,4 @@ class UserStore {
   }
 }
 
-module.exports = { UserStore, toProfile, isPasswordExpired };
+module.exports = { UserStore, toProfile, toAppProfile, omitMfaEnabled, isPasswordExpired };

@@ -22,9 +22,9 @@ const ALLOWED_LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/web
  * caused the tab-shadowing bug in Console; keeping each route
  * self-contained avoids the same class of mistake here.
  */
-module.exports = function brandingRoutes({ config, rankStore, siteSettingsStore, activityLog }) {
+module.exports = function brandingRoutes({ config, rankStore, userStore, siteSettingsStore, activityLog }) {
   const router = express.Router();
-  const requireBrandingCapability = requireCapability(rankStore, 'manageBranding');
+  const requireBrandingCapability = requireCapability(rankStore, userStore, 'manageBranding');
   const logoDir = `${config.avatars.directory}/../branding`;
   fs.mkdirSync(logoDir, { recursive: true });
 

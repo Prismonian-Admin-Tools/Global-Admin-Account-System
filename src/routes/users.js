@@ -1,7 +1,9 @@
 'use strict';
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
+const { FULL_CAPABILITY_RANKS } = require('../models/rankStore');
 
-module.exports = function usersRoutes({ userStore, rankStore, sessionStore, activityLog }) {
+module.exports = function usersRoutes({ userStore, rankStore, sessionStore, activityLog, mfaStore }) {
   const router = express.Router();
 
   function actor(req) {
@@ -11,15 +13,15 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
     return req.session.user.username;
   }
 
-  router.get('/users', async (req, res) => {
-    res.json(await userStore.list());
-  });
+  router.get('/users', asyncHandler(async (req, res) => {
+    res.json(await userStore.list({ limit: req.query.limit, offset: req.query.offset }));
+  }));
 
-  router.get('/users/:uid', async (req, res) => {
+  router.get('/users/:uid', asyncHandler(async (req, res) => {
     const profile = await userStore.getProfile(req.params.uid);
     if (!profile) return res.status(404).json({ error: 'No such user' });
     res.json(profile);
-  });
+  }));
 
   router.post('/users', express.json(), async (req, res) => {
     try {
@@ -40,11 +42,12 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
       const target = await userStore.findByUid(req.params.uid);
       if (!target) throw new Error('No such user');
 
-      // Don't let the last sysadmin demote or disable themselves-into-nothing.
-      const demotingOrDisabling = (body.role && body.role !== 'systemAdministrator') || body.disabled === true;
-      if (target.role === 'systemAdministrator' && demotingOrDisabling) {
-        const sysadmins = await userStore.countSysadmins();
-        if (sysadmins <= 1) throw new Error('Cannot remove the last remaining sysadmin account');
+      // Don't let the last full-capability admin (systemAdministrator OR
+      // trustedInstaller/Provider) demote or disable themselves-into-nothing.
+      const demotingOrDisabling = (body.role && !FULL_CAPABILITY_RANKS.includes(body.role)) || body.disabled === true;
+      if (FULL_CAPABILITY_RANKS.includes(target.role) && demotingOrDisabling) {
+        const admins = await userStore.countFullAdmins();
+        if (admins <= 1) throw new Error('Cannot remove the last remaining admin account');
       }
 
       if (body.role) {
@@ -73,7 +76,7 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
       }
 
       const rest = {};
-      ['fullName', 'description', 'email', 'theme', 'disabled', 'mustChangePassword', 'cannotChangePassword', 'passwordNeverExpires', 'passwordExpiresAt'].forEach((k) => {
+      ['fullName', 'description', 'email', 'theme', 'disabled', 'mustChangePassword', 'cannotChangePassword', 'passwordNeverExpires', 'passwordExpiresAt', 'needsOnboarding'].forEach((k) => {
         if (Object.prototype.hasOwnProperty.call(body, k)) rest[k] = body[k];
       });
       if (Object.keys(rest).length) await userStore.update(req.params.uid, rest);
@@ -92,8 +95,8 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
     try {
       const target = await userStore.findByUid(req.params.uid);
       if (!target) throw new Error('No such user');
-      if (target.role === 'systemAdministrator' && (await userStore.countSysadmins()) <= 1) {
-        throw new Error('Cannot delete the last remaining sysadmin account');
+      if (FULL_CAPABILITY_RANKS.includes(target.role) && (await userStore.countFullAdmins()) <= 1) {
+        throw new Error('Cannot delete the last remaining admin account');
       }
       await userStore.remove(req.params.uid);
       await sessionStore.revokeAllForUser(req.params.uid);
@@ -104,9 +107,9 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
     }
   });
 
-  router.get('/users/:uid/sessions', async (req, res) => {
+  router.get('/users/:uid/sessions', asyncHandler(async (req, res) => {
     res.json(await sessionStore.listForUser(req.params.uid));
-  });
+  }));
 
   router.delete('/users/:uid/sessions/:tokenHash', async (req, res) => {
     const ok = await sessionStore.revokeByHash(req.params.tokenHash, req.params.uid);
@@ -121,6 +124,24 @@ module.exports = function usersRoutes({ userStore, rankStore, sessionStore, acti
     const target = await userStore.findByUid(req.params.uid);
     await activityLog.add('admin', `${actorName(req)} signed ${target ? target.username : req.params.uid} out everywhere`, actor(req), actorName(req));
     res.json({ ok: true });
+  });
+
+  /**
+   * The console-side escape hatch for someone locked out of their own
+   * authenticator and backup codes — not recommended (the frontend says
+   * so), but a sysadmin needs some way to get a user back in without
+   * being able to complete the second factor themselves.
+   */
+  router.post('/users/:uid/mfa/disable', async (req, res) => {
+    try {
+      const target = await userStore.findByUid(req.params.uid);
+      if (!target) throw new Error('No such user');
+      await mfaStore.disable(req.params.uid);
+      await activityLog.add('admin', `${actorName(req)} disabled two-factor authentication for "${target.username}"`, actor(req), actorName(req));
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   return router;

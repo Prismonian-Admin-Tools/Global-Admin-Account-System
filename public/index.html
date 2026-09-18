@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GAM — Global Admin Account System</title>
+<title>Passport</title>
 <style>
   :root {
     --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -16,7 +16,7 @@
      than high-contrast borders (its real border-vs-surface ratio is
      only ~1.3:1), so this intentionally follows that over abstract
      contrast targets. ---- */
-  html, [data-theme="ember"] {
+  [data-theme="ember"] {
     --bg: #0b0e11; --bg-alt: #12161b; --surface: #12161b; --surface-2: #181d24;
     --border: #252b34; --border-soft: #1c212a;
     --text: #e8e6e1; --text-dim: #818996; --text-faint: #4f5561;
@@ -43,6 +43,32 @@
     --text: #16110c; --text-dim: #4c443a; --text-faint: #756a5c;
     --accent: #d4661f; --accent-dim: #b4551a; --accent-glow: rgba(212,102,31,0.16);
     --green: #327140; --red: #b33a32; --yellow: #93690a; --blue: #285d87;
+  }
+  [data-theme="purple"] {
+    --bg: #120a1c; --bg-alt: #1c1030; --surface: #1c1030; --surface-2: #241541;
+    --border: #7a5aad; --border-soft: #4a3570;
+    --text: #f3eefc; --text-dim: #c3b0dd; --text-faint: #8a76ab;
+    --accent: #b478f0; --accent-dim: #9355d1; --accent-glow: rgba(180,120,240,0.22);
+    --green: #7fdcb8; --red: #f07871; --yellow: #eec35c; --blue: #83b8e6;
+  }
+  /* ---- the "sharp" family: pure black/white, maximum border-vs-surface
+     contrast — the opposite end of the spectrum from ember's low-contrast
+     look above, for anyone who wants edges over ambience. blueSharp is
+     the app default (bound to bare `html` below) — more recognizable at
+     a glance than ember was. ---- */
+  html, [data-theme="blueSharp"] {
+    --bg: #000000; --bg-alt: #0a0a0a; --surface: #000000; --surface-2: #111111;
+    --border: #ffffff; --border-soft: #666666;
+    --text: #ffffff; --text-dim: #cccccc; --text-faint: #999999;
+    --accent: #00e5ff; --accent-dim: #00b8cc; --accent-glow: rgba(0,229,255,0.25);
+    --green: #00ff85; --red: #ff3b3b; --yellow: #ffe135; --blue: #00e5ff;
+  }
+  [data-theme="purpleSharp"] {
+    --bg: #000000; --bg-alt: #0a0a0a; --surface: #000000; --surface-2: #111111;
+    --border: #ffffff; --border-soft: #666666;
+    --text: #ffffff; --text-dim: #cccccc; --text-faint: #999999;
+    --accent: #b45cff; --accent-dim: #8e3fd1; --accent-glow: rgba(180,92,255,0.25);
+    --green: #00ff85; --red: #ff3b3b; --yellow: #ffe135; --blue: #b45cff;
   }
 
   * { box-sizing: border-box; }
@@ -104,9 +130,11 @@
   header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border-soft); background: var(--bg-alt); }
   header .who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-dim); }
   .avatar-chip { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: var(--accent); flex-shrink: 0; }
+  /* Colored via inline style from the rank's own `color` field (see
+     rankBadgeStyle() in the script below) rather than a per-rank-name
+     CSS class — so a sysadmin-customized or custom rank's color shows up
+     here too, not just the two stock ranks that used to have one. */
   .role-pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
-  .role-pill.systemAdministrator { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
-  .role-pill.trustedInstaller { color: var(--blue); border-color: var(--blue); }
 
   main { flex: 1; display: flex; }
   nav { width: 208px; border-right: 1px solid var(--border-soft); padding: 18px 12px; background: var(--bg-alt); }
@@ -144,8 +172,6 @@
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--surface-2); }
   .badge { font-size: 11px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border); color: var(--text-dim); display: inline-block; }
-  .badge.systemAdministrator { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
-  .badge.trustedInstaller { color: var(--blue); border-color: var(--blue); }
   .badge.disabled { color: var(--red); border-color: var(--red); }
   .badge.ok { color: var(--green); border-color: var(--green); }
   .badge.warn { color: var(--yellow); border-color: var(--yellow); }
@@ -181,6 +207,9 @@
   .swatch.ocean { background: linear-gradient(135deg, #5fc4f5, #070f18); }
   .swatch.forest { background: linear-gradient(135deg, #7fe08b, #0a1209); }
   .swatch.light { background: linear-gradient(135deg, #d4661f, #eeebe4); }
+  .swatch.purple { background: linear-gradient(135deg, #b478f0, #120a1c); }
+  .swatch.blueSharp { background: linear-gradient(135deg, #00e5ff, #000000); }
+  .swatch.purpleSharp { background: linear-gradient(135deg, #b45cff, #000000); }
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px; }
   .detail-grid .k { color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
   .detail-grid .v { color: var(--text); font-family: var(--mono); font-size: 12px; word-break: break-all; }
@@ -233,7 +262,7 @@ const ICONS = {
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
 };
 
-const state = { profile: null, view: 'dashboard', branding: { siteName: 'GAM', logoExt: null }, ranks: [] };
+const state = { profile: null, view: 'dashboard', branding: { siteName: 'Passport', logoExt: null }, ranks: [] };
 
 async function api(path, opts = {}) {
   const isForm = opts.body instanceof FormData;
@@ -248,8 +277,15 @@ async function api(path, opts = {}) {
   return data;
 }
 
+const THEMES = ['ember', 'ocean', 'forest', 'light', 'purple', 'blueSharp', 'purpleSharp'];
 function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme && ['ember','ocean','forest','light'].includes(theme) ? theme : 'ember');
+  document.documentElement.setAttribute('data-theme', theme && THEMES.includes(theme) ? theme : 'blueSharp');
+}
+
+/** Someone in a rank with no admin-panel capabilities at all has nothing to see on Dashboard — land them on My Account instead. Only applied at login/boot, never overrides a manual tab click. */
+function hasNoCapabilities(profile) {
+  const caps = (profile && profile.capabilities) || {};
+  return !Object.values(caps).some(Boolean);
 }
 
 function toast(msg, kind) {
@@ -275,6 +311,26 @@ function el(tag, attrs, children) {
 
 function icon(name) { return el('span', { html: ICONS[name] || '' }); }
 
+/**
+ * A secret copied to the OS clipboard sits there until something else
+ * overwrites it — on a shared or unattended machine that's an open window
+ * for anyone with clipboard access. Best-effort: readText() needs a
+ * permission a browser may not grant, so a failure there just means no
+ * auto-clear, not a broken copy.
+ */
+const CLIPBOARD_AUTOCLEAR_MS = 45000;
+function copyWithAutoClear(text, label) {
+  if (!navigator.clipboard) return;
+  navigator.clipboard.writeText(text).then(() => {
+    toast(label || 'Copied', 'ok');
+    setTimeout(() => {
+      navigator.clipboard.readText().then((current) => {
+        if (current === text) return navigator.clipboard.writeText('');
+      }).catch(() => {});
+    }, CLIPBOARD_AUTOCLEAR_MS);
+  }).catch(() => {});
+}
+
 function initials(name) {
   return (name || '?').trim().charAt(0).toUpperCase();
 }
@@ -294,21 +350,24 @@ function brandmark() {
       el('span', { class: 'word', text: state.branding.siteName }),
     ]);
   }
+  // A passport booklet outline with a simple portrait-and-shoulders emblem
+  // in the middle — inline so it recolors with the active theme via the
+  // same CSS vars every other icon uses, no image asset needed.
   const logo = `<svg class="logo" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
-    <circle class="ring" cx="13" cy="13" r="10.5" fill="none" stroke-width="1.6" opacity=".5"/>
-    <circle class="dot" cx="13" cy="4.2" r="2.6"/>
-    <circle class="dot" cx="13" cy="13" r="3.4" opacity=".9"/>
+    <rect x="4" y="2" width="18" height="22" rx="2.5" fill="none" stroke="var(--text-dim)" stroke-width="1.6" opacity=".55"/>
+    <circle cx="13" cy="10.3" r="3.2" fill="var(--accent)" opacity=".9"/>
+    <path d="M8.3 18.6c1.15-1.7 2.8-2.5 4.7-2.5s3.55.8 4.7 2.5" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" opacity=".85"/>
   </svg>`;
-  const name = state.branding.siteName || 'GAM';
-  const wordHtml = name === 'GAM'
-    ? 'G<span>A</span>M'
+  const name = state.branding.siteName || 'Passport';
+  const wordHtml = name === 'Passport'
+    ? 'Pass<span>port</span>'
     : name.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
   return el('div', { class: 'brandmark', html: `${logo}<span class="word">${wordHtml}</span>` });
 }
 
 /**
  * /oidc/authorize sends a signed-out (or must-change-password) browser
- * here with ?continue=<the original authorize URL> once GAM's own login
+ * here with ?continue=<the original authorize URL> once Passport's own login
  * is out of the way. This is a real page navigation, not a client-side
  * route change, so the server-side OIDC route runs again — now
  * authenticated — and finishes redirecting to the client app.
@@ -322,17 +381,19 @@ function continueIfNeeded() {
 
 /* ---------------- boot ---------------- */
 async function boot() {
-  applyTheme('ember');
+  applyTheme('blueSharp');
   try {
     state.branding = await api('/branding');
-  } catch (e) { /* fall back to default GAM branding */ }
-  document.title = `${state.branding.siteName} — Global Admin Account System`;
+  } catch (e) { /* fall back to default Passport branding */ }
+  document.title = state.branding.siteName || 'Passport';
   try {
-    const { profile, requirePasswordChange } = await api('/session');
+    const { profile, requirePasswordChange, onboardingRequired } = await api('/session');
     state.profile = profile;
     applyTheme(profile.theme);
+    if (onboardingRequired) return renderOnboarding();
     if (requirePasswordChange) return renderForceChange();
     if (continueIfNeeded()) return;
+    if (hasNoCapabilities(profile)) state.view = 'account';
     render();
   } catch (e) {
     renderLogin();
@@ -340,6 +401,18 @@ async function boot() {
 }
 
 /* ---------------- login ---------------- */
+
+/** Shared by renderLogin's submit and renderMfaChallenge's — whichever one actually finishes a login lands here. */
+function handleLoginResult(data) {
+  state.profile = data.profile;
+  applyTheme(data.profile.theme);
+  if (data.onboardingRequired) return renderOnboarding();
+  if (data.requirePasswordChange) return renderForceChange();
+  if (continueIfNeeded()) return;
+  if (hasNoCapabilities(data.profile)) state.view = 'account';
+  render();
+}
+
 function renderLogin() {
   const app = document.getElementById('app');
   app.innerHTML = '';
@@ -350,20 +423,17 @@ function renderLogin() {
   async function submit() {
     errEl.textContent = '';
     try {
-      const { profile, requirePasswordChange } = await api('/session/login', {
+      const data = await api('/session/login', {
         method: 'POST', body: { username: username.value, password: password.value },
       });
-      state.profile = profile;
-      applyTheme(profile.theme);
-      if (requirePasswordChange) return renderForceChange();
-      if (continueIfNeeded()) return;
-      render();
+      if (data.mfaRequired) return renderMfaChallenge(data.mfaTicket);
+      handleLoginResult(data);
     } catch (e) { errEl.textContent = e.message; }
   }
 
   const form = el('div', { class: 'card' }, [
     brandmark(),
-    el('div', { class: 'sub', text: 'Global Admin Account System' }),
+    el('div', { class: 'sub', text: 'Identity & access management' }),
     el('label', { text: 'Username' }), username,
     el('label', { text: 'Password' }), password,
     errEl,
@@ -372,6 +442,33 @@ function renderLogin() {
   password.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   app.appendChild(el('div', { class: 'center-screen' }, [form]));
   username.focus();
+}
+
+/* ---------------- MFA challenge (second step of login) ---------------- */
+function renderMfaChallenge(mfaTicket) {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const errEl = el('div', { class: 'err' });
+  const token = el('input', { type: 'text', placeholder: '6-digit code', maxlength: '10', inputmode: 'numeric', autocomplete: 'one-time-code' });
+
+  async function submit() {
+    errEl.textContent = '';
+    try {
+      const data = await api('/session/login/mfa', { method: 'POST', body: { mfaTicket, token: token.value } });
+      handleLoginResult(data);
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  const form = el('div', { class: 'card' }, [
+    brandmark(),
+    el('div', { class: 'sub', text: 'Enter the 6-digit code from your authenticator app, or one of your backup codes.' }),
+    el('label', { text: 'Code' }), token,
+    errEl,
+    el('button', { class: 'btn-primary btn-block', text: 'Verify', onclick: submit }),
+  ]);
+  token.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  app.appendChild(el('div', { class: 'center-screen' }, [form]));
+  token.focus();
 }
 
 /* ---------------- forced password change ---------------- */
@@ -387,7 +484,14 @@ function renderForceChange() {
     try {
       await api('/account/password', { method: 'PUT', body: { newPassword: pw1.value, confirmPassword: pw2.value } });
       toast('Password updated', 'ok');
+      // account/password's own response is a bare profile — re-fetch via
+      // /session for the capabilities (and rankColor) that only that
+      // endpoint adds, so the tab list and the no-capabilities default
+      // below see the real thing instead of an empty object.
+      const { profile } = await api('/session');
+      state.profile = profile;
       if (continueIfNeeded()) return;
+      if (hasNoCapabilities(profile)) state.view = 'account';
       render();
     } catch (e) { errEl.textContent = e.message; }
   }
@@ -400,6 +504,73 @@ function renderForceChange() {
     errEl,
     el('button', { class: 'btn-primary btn-block', text: 'Update password', onclick: submit }),
   ]);
+  app.appendChild(el('div', { class: 'center-screen' }, [form]));
+}
+
+/* ---------------- new-hire onboarding wizard ---------------- */
+function renderOnboarding() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const profile = state.profile;
+  const errEl = el('div', { class: 'err' });
+
+  const fields = [
+    brandmark(),
+    el('div', { class: 'sub', text: `Welcome, ${profile.username}! A few things before you get started.` }),
+  ];
+
+  let avatarFile = null;
+  const fileInput = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', style: 'display:none' });
+  fileInput.addEventListener('change', () => { avatarFile = fileInput.files[0] || null; });
+  const avatarEl = avatarNode(profile, 'big');
+  avatarEl.addEventListener('click', () => fileInput.click());
+  fields.push(el('div', { class: 'avatar-big-wrap' }, [avatarEl, fileInput, el('div', {}, [
+    el('div', { style: 'font-weight:700;font-size:15px', text: 'Profile picture (optional)' }),
+    el('div', { class: 'muted', text: 'Click to choose one — PNG, JPEG, or WEBP, up to 2MB. You can always set this later.' }),
+  ])]));
+
+  const fullName = el('input', { type: 'text', placeholder: 'Your name' });
+  const needsFullName = !profile.fullName;
+  if (needsFullName) fields.push(el('label', { text: 'Full name' }), fullName);
+
+  const email = el('input', { type: 'email', placeholder: 'you@example.com' });
+  const needsEmail = !profile.email;
+  if (needsEmail) fields.push(el('label', { text: 'Email' }), email);
+
+  const pw1 = el('input', { type: 'password', placeholder: 'At least 8 characters' });
+  const pw2 = el('input', { type: 'password', placeholder: 'Repeat it' });
+  fields.push(
+    el('div', { class: 'divider' }),
+    el('label', { text: 'Choose a new password' }), pw1,
+    el('label', { text: 'Confirm new password' }), pw2,
+  );
+
+  async function submit() {
+    errEl.textContent = '';
+    try {
+      if (avatarFile) {
+        const fd = new FormData();
+        fd.append('avatar', avatarFile);
+        await api('/account/avatar', { method: 'POST', body: fd });
+      }
+      const body = { newPassword: pw1.value, confirmPassword: pw2.value };
+      if (needsFullName && fullName.value) body.fullName = fullName.value;
+      if (needsEmail && email.value) body.email = email.value;
+      await api('/account/onboarding', { method: 'PUT', body });
+      toast('Welcome aboard!', 'ok');
+      // Same reason as renderForceChange — /account/onboarding's own
+      // response has no capabilities/rankColor, only /session does.
+      const { profile } = await api('/session');
+      state.profile = profile;
+      if (continueIfNeeded()) return;
+      if (hasNoCapabilities(profile)) state.view = 'account';
+      render();
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  fields.push(errEl, el('button', { class: 'btn-primary btn-block', text: 'Finish setup', style: 'margin-top:10px', onclick: submit }));
+
+  const form = el('div', { class: 'card' }, fields);
   app.appendChild(el('div', { class: 'center-screen' }, [form]));
 }
 
@@ -431,7 +602,7 @@ function render() {
   const header = el('header', {}, [
     brandmark(),
     el('div', { class: 'who' }, [
-      el('span', { class: 'role-pill ' + state.profile.role, text: state.profile.role }),
+      el('span', { class: 'role-pill', style: `color:${state.profile.rankColor || '#8b93a1'};border-color:${state.profile.rankColor || '#8b93a1'}`, text: state.profile.role }),
       avatarNode(state.profile, 'small'),
       el('span', { text: state.profile.username }),
       el('button', { class: 'btn-ghost btn-sm', text: 'Sign out', onclick: logout }),
@@ -548,7 +719,7 @@ async function renderAccount(content) {
     } catch (e) { toast(e.message, 'err'); }
   }
 
-  const swatches = ['ember', 'ocean', 'forest', 'light'].map((t) => {
+  const swatches = THEMES.map((t) => {
     const sw = el('div', { class: 'swatch ' + t + (profile.theme === t ? ' selected' : '') });
     sw.addEventListener('click', async () => {
       applyTheme(t);
@@ -632,7 +803,7 @@ async function loadMfaPanel() {
     const status = await api('/account/mfa');
     panel.innerHTML = '';
     panel.appendChild(el('h3', {}, [icon('policy'), el('span', { text: 'Two-factor authentication' })]));
-    panel.appendChild(el('div', { class: 'hint', text: 'Authenticator-app codes for your account. This is a preview — GAM doesn’t require a code to sign in yet.' }));
+    panel.appendChild(el('div', { class: 'hint', text: 'Authenticator-app codes for your account. Once enabled, you’ll need a code (or a backup code) every time you sign in.' }));
 
     if (status.enabled) {
       panel.appendChild(el('div', { class: 'badge ok', style: 'margin:10px 0;display:inline-block', text: 'Enabled' }));
@@ -694,10 +865,7 @@ function openMfaSetupModal() {
 }
 
 function showMfaBackupCodes(codes) {
-  function copyAll() {
-    navigator.clipboard && navigator.clipboard.writeText(codes.join('\n'));
-    toast('Copied', 'ok');
-  }
+  function copyAll() { copyWithAutoClear(codes.join('\n')); }
   openModal([
     el('h3', {}, [icon('policy'), el('span', { text: 'Two-factor enabled' })]),
     el('div', { class: 'hint', text: 'Save these backup codes somewhere safe — they won’t be shown again, and each one works once.' }),
@@ -732,7 +900,7 @@ async function loadOwnSessions() {
         toast('Signed out everywhere', 'ok');
         loadOwnSessions();
       },
-    }, 'Apps you\u2019re currently signed into via GAM.');
+    }, 'Apps you\u2019re currently signed into via Passport.');
   } catch (e) {
     panel.innerHTML = '';
     panel.appendChild(el('div', { class: 'err', text: 'Could not load sessions: ' + e.message }));
@@ -752,7 +920,7 @@ function renderSessionsInto(panel, sessions, handlers, subtitle) {
     : [el('div', { class: 'empty-note', text: 'No active sessions in other apps right now.' })];
 
   panel.appendChild(el('h3', {}, [icon('monitor'), el('span', { text: 'Active sessions' })]));
-  panel.appendChild(el('div', { class: 'muted', text: subtitle || 'Apps currently signed into via GAM.', style: 'margin-bottom:10px' }));
+  panel.appendChild(el('div', { class: 'muted', text: subtitle || 'Apps currently signed into via Passport.', style: 'margin-bottom:10px' }));
   rows.forEach((r) => panel.appendChild(r));
   if (sessions.length > 1) {
     panel.appendChild(el('button', { class: 'btn-ghost btn-sm', text: 'Sign out everywhere', style: 'margin-top:12px', onclick: handlers.onRevokeAll }));
@@ -829,7 +997,7 @@ async function renderUsers(content) {
   ]);
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('users'), el('span', { text: 'Users' })]),
-    el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with GAM.` }),
+    el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with Passport.` }),
     el('div', { class: 'toolbar' }, [
       search,
       el('div', { style: 'display:flex;gap:8px' }, [
@@ -847,10 +1015,21 @@ function rankLabel(name) {
   return rank ? rank.label : name;
 }
 
+/** Every rank badge/pill in the app colors itself from this — a sysadmin-set custom color, falling back to neutral gray for a rank state.ranks hasn't loaded yet. */
+function rankColor(name) {
+  const rank = state.ranks.find((r) => r.name === name);
+  return (rank && rank.color) || '#8b93a1';
+}
+function rankBadgeStyle(name) {
+  const c = rankColor(name);
+  return `color:${c};border-color:${c};background:${c}26`;
+}
+
 function userRow(u) {
-  const roleBadge = el('span', { class: 'badge ' + u.role, text: rankLabel(u.role) });
+  const roleBadge = el('span', { class: 'badge', style: rankBadgeStyle(u.role), text: rankLabel(u.role) });
   const statusBadge = u.disabled ? el('span', { class: 'badge disabled', text: 'disabled' })
-    : (u.mustChangePassword ? el('span', { class: 'badge warn', text: 'must change pw' }) : el('span', { class: 'badge ok', text: 'active' }));
+    : (u.needsOnboarding ? el('span', { class: 'badge warn', text: 'onboarding pending' })
+      : (u.mustChangePassword ? el('span', { class: 'badge warn', text: 'must change pw' }) : el('span', { class: 'badge ok', text: 'active' })));
   const editBtn = el('button', { class: 'btn-ghost btn-sm', text: 'Manage', onclick: () => openManageUserModal(u) });
   return el('tr', {}, [
     el('td', {}, [el('div', { class: 'name-cell' }, [avatarNode(u, 'small'), el('span', { text: u.username })])]),
@@ -875,7 +1054,7 @@ async function renderRanks(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('ranks'), el('span', { text: 'Ranks' })]),
-    el('div', { class: 'pagesub', text: 'What each rank is allowed to do inside GAM’s own admin panel. Provider and Sysadmin are fixed by design and can’t be edited.' }),
+    el('div', { class: 'pagesub', text: 'What each rank is allowed to do inside Passport’s own admin panel. Provider and Sysadmin’s capabilities are fixed by design — only their color can be changed.' }),
     el('div', { class: 'toolbar' }, [
       el('div'),
       canManage ? el('button', { class: 'btn-primary', text: '+ New rank', onclick: () => openRankModal(null, capabilities) }) : el('div'),
@@ -887,14 +1066,14 @@ async function renderRanks(content) {
 function rankRow(r, capabilities, canManage) {
   const capsText = capabilities.filter((c) => r.capabilities[c]).join(', ') || '—';
   const actions = [];
-  if (canManage && !r.locked) {
-    actions.push(el('button', { class: 'btn-ghost btn-sm', text: 'Edit', onclick: () => openRankModal(r, capabilities) }));
+  if (canManage) {
+    actions.push(el('button', { class: 'btn-ghost btn-sm', text: r.locked ? 'Color' : 'Edit', onclick: () => openRankModal(r, capabilities) }));
   }
   if (canManage && !r.isBuiltin) {
     actions.push(el('button', { class: 'btn-danger btn-sm', text: 'Delete', onclick: () => deleteRank(r) }));
   }
   return el('tr', {}, [
-    el('td', {}, [el('span', { class: 'badge ' + r.name, text: r.label }), r.locked ? el('span', { class: 'hint', text: ' (fixed)' }) : null]),
+    el('td', {}, [el('span', { class: 'badge', style: `color:${r.color};border-color:${r.color};background:${r.color}26`, text: r.label }), r.locked ? el('span', { class: 'hint', text: ' (fixed)' }) : null]),
     el('td', { text: capsText }),
     el('td', { class: 'row-actions' }, actions),
   ]);
@@ -911,13 +1090,17 @@ async function deleteRank(r) {
 
 function openRankModal(rank, capabilities) {
   const isNew = !rank;
+  const locked = !!(rank && rank.locked);
   const name = el('input', { type: 'text', placeholder: 'e.g. supportLead', value: rank ? rank.name : '' });
   if (!isNew) name.disabled = true;
   const label = el('input', { type: 'text', placeholder: 'e.g. Support Lead', value: rank ? rank.label : '' });
+  if (locked) label.disabled = true;
+  const color = el('input', { type: 'color', value: (rank && rank.color) || '#8b93a1' });
   const checkboxes = {};
   const capList = capabilities.map((c) => {
     const cb = el('input', { type: 'checkbox' });
     cb.checked = !!(rank && rank.capabilities[c]);
+    if (locked) cb.disabled = true;
     checkboxes[c] = cb;
     return el('label', { style: 'display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:6px' }, [cb, el('span', { text: c })]);
   });
@@ -925,14 +1108,22 @@ function openRankModal(rank, capabilities) {
 
   async function submit() {
     errEl.textContent = '';
-    const caps = {};
-    capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
     try {
       if (isNew) {
-        await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps } });
+        const caps = {};
+        capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
+        await api('/ranks', { method: 'POST', body: { name: name.value, label: label.value, capabilities: caps, color: color.value } });
         toast('Rank created', 'ok');
+      } else if (locked) {
+        // Label/capabilities are hardcoded for a locked rank (see
+        // rankStore.js) — sending them would just be refused, so only
+        // the cosmetic color field goes out.
+        await api('/ranks/' + rank.name, { method: 'PATCH', body: { color: color.value } });
+        toast('Color updated', 'ok');
       } else {
-        await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps } });
+        const caps = {};
+        capabilities.forEach((c) => { caps[c] = checkboxes[c].checked; });
+        await api('/ranks/' + rank.name, { method: 'PATCH', body: { label: label.value, capabilities: caps, color: color.value } });
         toast('Rank updated', 'ok');
       }
       closeModal();
@@ -941,9 +1132,11 @@ function openRankModal(rank, capabilities) {
   }
 
   openModal([
-    el('h3', {}, [icon('ranks'), el('span', { text: isNew ? 'New rank' : 'Edit rank' })]),
+    el('h3', {}, [icon('ranks'), el('span', { text: isNew ? 'New rank' : (locked ? `"${rank.label}" — color only` : 'Edit rank') })]),
+    locked ? el('div', { class: 'hint', text: 'This rank’s capabilities are fixed by design — only its color can be changed.' }) : null,
     el('label', { text: 'Name (used internally, letters/numbers only)' }), name,
     el('label', { text: 'Label (shown in the UI)' }), label,
+    el('label', { text: 'Color' }), color,
     el('label', { text: 'Capabilities' }),
     el('div', {}, capList),
     errEl,
@@ -1030,12 +1223,22 @@ function openImportCsvModal() {
   }
 
   function downloadCreds() {
+    if (!confirm(
+      `This file contains ${importedCreds.length} plaintext temporary password${importedCreds.length === 1 ? '' : 's'}. ` +
+      'Deliver it to each user over a secure channel and delete it afterward — anyone who can read it can sign in as them until they change their password. Continue?'
+    )) return;
     const csv = 'username,temporary_password\n' + importedCreds.map((c) => `${c.username},${c.password}`).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'gus-imported-credentials.csv';
     a.click();
+    // The per-account creation is already audit-logged (see runImport);
+    // this just drops the plaintext copy sitting in page memory once the
+    // one download it's for has happened.
+    importedCreds = [];
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = 'Downloaded — credentials cleared from memory';
   }
 
   const importBtn = el('button', { class: 'btn-primary', text: 'Choose a file first', disabled: 'disabled', onclick: runImport });
@@ -1045,6 +1248,7 @@ function openImportCsvModal() {
     el('h3', {}, [icon('upload'), el('span', { text: 'Import users from CSV' })]),
     dropzone, fileInput,
     el('div', { class: 'hint', text: 'Every imported account gets a random temporary password and is forced to change it on first login, same as creating one by hand.' }),
+    el('div', { class: 'hint', text: '⚠ Imported credentials are only ever shown once, as a downloadable CSV of plaintext passwords — handle that file like the secret it is.' }),
     errEl,
     resultsWrap,
     el('div', { class: 'modal-actions' }, [
@@ -1113,6 +1317,8 @@ function openManageUserModal(u) {
   const description = el('textarea', { rows: '2' }); description.value = u.description || '';
   const disabled = el('input', { type: 'checkbox' }); disabled.checked = u.disabled;
 
+  const needsOnboarding = el('input', { type: 'checkbox' }); needsOnboarding.checked = !!u.needsOnboarding;
+
   const mustChange = el('input', { type: 'checkbox' }); mustChange.checked = !!u.mustChangePassword;
   const cannotChange = el('input', { type: 'checkbox' }); cannotChange.checked = !!u.cannotChangePassword;
   mustChange.addEventListener('change', () => { if (mustChange.checked) cannotChange.checked = false; });
@@ -1141,6 +1347,16 @@ function openManageUserModal(u) {
     hadPassword = !!newPw.value;
   });
 
+  async function disableMfa() {
+    if (!confirm(`Disable two-factor authentication for "${u.username}"? Not recommended — only do this if they've lost both their authenticator and their backup codes.`)) return;
+    try {
+      await api('/users/' + u.uid + '/mfa/disable', { method: 'POST' });
+      closeModal();
+      toast('Two-factor disabled', 'ok');
+      renderUsers(document.getElementById('content'));
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
   async function save() {
     errEl.textContent = '';
     if (newPw.value && newPw.value !== confirmNewPw.value) {
@@ -1153,6 +1369,7 @@ function openManageUserModal(u) {
         mustChangePassword: mustChange.checked, cannotChangePassword: cannotChange.checked,
         passwordNeverExpires: neverExpires.checked,
         passwordExpiresAt: neverExpires.checked ? null : (expiresAt.value ? new Date(expiresAt.value).toISOString() : null),
+        needsOnboarding: needsOnboarding.checked,
       };
       if (newPw.value) { body.password = newPw.value; body.confirmPassword = confirmNewPw.value; }
       await api('/users/' + u.uid, { method: 'PATCH', body });
@@ -1180,6 +1397,18 @@ function openManageUserModal(u) {
     el('label', { text: 'Email' }), email,
     el('label', { text: 'Description' }), description,
     el('div', { class: 'checkline' }, [disabled, el('span', { text: 'Account disabled' })]),
+
+    el('div', { class: 'divider' }),
+    el('div', { class: 'checkline' }, [needsOnboarding, el('span', { text: 'Send through the onboarding wizard on next login' })]),
+
+    el('div', { class: 'divider' }),
+    el('div', { class: 'muted', text: 'TWO-FACTOR AUTHENTICATION' }),
+    u.mfaEnabled
+      ? el('div', {}, [
+          el('span', { class: 'badge ok', style: 'display:inline-block;margin-bottom:8px', text: 'Enabled' }),
+          el('div', {}, [el('button', { class: 'btn-danger btn-sm', text: 'Disable two-factor', onclick: disableMfa })]),
+        ])
+      : el('div', { class: 'muted', text: 'Not enabled for this account.' }),
 
     el('div', { class: 'divider' }),
     el('div', { class: 'muted', text: 'PASSWORD POLICY' }),
@@ -1225,7 +1454,7 @@ async function loadUserSessions(uid) {
         toast('Signed out everywhere', 'ok');
         loadUserSessions(uid);
       },
-    }, 'Apps this user is currently signed into via GAM.');
+    }, 'Apps this user is currently signed into via Passport.');
   } catch (e) {
     wrap.innerHTML = '';
     wrap.appendChild(el('div', { class: 'err', text: 'Could not load sessions: ' + e.message }));
@@ -1261,6 +1490,13 @@ function appRow(a) {
     el('button', { class: 'btn-ghost btn-sm', text: 'Access', onclick: () => openAppAccessModal(a) }),
   ];
   if (a.authMethod === 'oidc') actions.push(el('button', { class: 'btn-ghost btn-sm', text: 'OIDC info', onclick: () => openOidcInfoModal(a) }));
+  if (a.authMethod === 'gam') {
+    actions.push(el('button', {
+      class: 'btn-ghost btn-sm',
+      text: a.supportsMfaChallenge ? 'MFA challenge: on' : 'MFA challenge: off',
+      onclick: () => toggleMfaSupport(a),
+    }));
+  }
   actions.push(
     el('button', { class: 'btn-ghost btn-sm', text: 'Regenerate secret', onclick: () => regenerateSecret(a) }),
     el('button', { class: 'btn-ghost btn-sm', text: a.disabled ? 'Enable' : 'Disable', onclick: () => toggleApp(a) }),
@@ -1281,7 +1517,7 @@ function openCreateAppModal() {
   const redirectUris = el('textarea', { rows: '2', placeholder: 'https://client.example.com/callback\n(one per line)' });
   const redirectUrisWrap = el('div', {}, [
     el('label', { text: 'Redirect URIs (one per line)' }), redirectUris,
-    el('div', { class: 'hint', text: 'Where GAM is allowed to send the user back after they sign in — must match exactly.' }),
+    el('div', { class: 'hint', text: 'Where Passport is allowed to send the user back after they sign in — must match exactly.' }),
   ]);
   redirectUrisWrap.style.display = 'none';
   authMethod.addEventListener('change', () => { redirectUrisWrap.style.display = authMethod.value === 'oidc' ? '' : 'none'; });
@@ -1315,9 +1551,9 @@ function openCreateAppModal() {
   ]);
 }
 
-/** GAM is the Identity Provider here — this is what a client app's OIDC library needs to point at GAM. */
+/** Passport is the Identity Provider here — this is what a client app's OIDC library needs to point at Passport. */
 function openOidcInfoModal(app, secret) {
-  function copy(text) { navigator.clipboard && navigator.clipboard.writeText(text); toast('Copied', 'ok'); }
+  function copy(text) { copyWithAutoClear(text); }
   const redirectUris = el('textarea', { rows: '2' }); redirectUris.value = (app.redirectUris || []).join('\n');
   const errEl = el('div', { class: 'err' });
   async function saveRedirectUris() {
@@ -1422,7 +1658,7 @@ async function openAppAccessModal(a) {
 }
 
 function renderSecretModal(app, secret) {
-  function copy(text) { navigator.clipboard && navigator.clipboard.writeText(text); toast('Copied', 'ok'); }
+  function copy(text) { copyWithAutoClear(text); }
   openModal([
     el('h3', { text: '"' + app.name + '" registered' }),
     el('div', { class: 'muted', text: 'App ID:' }),
@@ -1450,6 +1686,18 @@ async function regenerateSecret(a) {
 async function toggleApp(a) {
   try {
     await api('/apps/' + a.appId, { method: 'PATCH', body: { disabled: !a.disabled } });
+    renderApps(document.getElementById('content'));
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/**
+ * Whether this app gets good_mfa_required (and can call /login/mfa) for
+ * its MFA-enabled users, instead of the old dormant behavior. Off by
+ * default on every app — see routes/apiV1.js.
+ */
+async function toggleMfaSupport(a) {
+  try {
+    await api('/apps/' + a.appId + '/mfa-support', { method: 'PUT', body: { supportsMfaChallenge: !a.supportsMfaChallenge } });
     renderApps(document.getElementById('content'));
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -1503,7 +1751,7 @@ async function renderActivity(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('activity'), el('span', { text: 'Activity' })]),
-    el('div', { class: 'pagesub', text: 'What\u2019s happened across GAM recently.' }),
+    el('div', { class: 'pagesub', text: 'What\u2019s happened across Passport recently.' }),
 
     el('div', { class: 'filter-bar' }, [
       el('div', { class: 'fgroup' }, [el('label', { text: 'Category' }), categorySelect]),
@@ -1627,7 +1875,7 @@ async function renderEmailSettings(content) {
   const username = el('input', { type: 'text', value: settings.username || '' });
   const password = el('input', { type: 'password', placeholder: settings.hasPassword ? '•••••••• (unchanged)' : 'SMTP password' });
   const fromAddress = el('input', { type: 'text', value: settings.fromAddress || '', placeholder: 'noreply@example.com' });
-  const fromName = el('input', { type: 'text', value: settings.fromName || 'GAM' });
+  const fromName = el('input', { type: 'text', value: settings.fromName || 'Passport' });
   const errEl = el('div', { class: 'err' });
 
   async function save() {
@@ -1651,7 +1899,7 @@ async function renderEmailSettings(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('email'), el('span', { text: 'Email' })]),
-    el('div', { class: 'pagesub', text: 'SMTP settings GAM uses to send account notifications (password changes, expiry warnings, unknown sign-ins, and more).' }),
+    el('div', { class: 'pagesub', text: 'SMTP settings Passport uses to send account notifications (password changes, expiry warnings, unknown sign-ins, and more).' }),
 
     el('div', { class: 'panel' }, [
       el('h3', {}, [icon('email'), el('span', { text: 'SMTP server' })]),
@@ -1720,7 +1968,7 @@ async function renderSettings(content) {
 
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('settings'), el('span', { text: 'Settings' })]),
-    el('div', { class: 'pagesub', text: 'Branding shown on the login screen and header, for every app connected to GAM.' }),
+    el('div', { class: 'pagesub', text: 'Branding shown on the login screen and header, for every app connected to Passport.' }),
 
     el('div', { class: 'panel' }, [
       el('h3', {}, [icon('account'), el('span', { text: 'Site name' })]),
@@ -1738,7 +1986,7 @@ async function renderSettings(content) {
         ]),
       ]),
       logoFile,
-      el('div', { class: 'hint', text: 'PNG, JPEG, or WEBP, up to 1MB. Falls back to the default GAM mark if not set.' }),
+      el('div', { class: 'hint', text: 'PNG, JPEG, or WEBP, up to 1MB. Falls back to the default Passport mark if not set.' }),
     ]),
   ]));
 }

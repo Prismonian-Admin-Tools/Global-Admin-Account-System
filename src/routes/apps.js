@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
   const router = express.Router();
@@ -7,9 +8,9 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
   function actor(req) { return req.session.user.uid; }
   function actorName(req) { return req.session.user.username; }
 
-  router.get('/apps', async (req, res) => {
-    res.json(await appStore.list());
-  });
+  router.get('/apps', asyncHandler(async (req, res) => {
+    res.json(await appStore.list({ limit: req.query.limit, offset: req.query.offset }));
+  }));
 
   /** Returns the plaintext secret ONCE, at creation. It cannot be retrieved again — only regenerated. */
   router.post('/apps', express.json(), async (req, res) => {
@@ -43,8 +44,23 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
     }
   });
 
+  /**
+   * Per-app opt-in for the MFA challenge (see routes/apiV1.js) — an app
+   * only gets good_mfa_required for its MFA-enabled users once it
+   * declares it can actually handle that response and call /login/mfa.
+   */
+  router.put('/apps/:appId/mfa-support', express.json(), async (req, res) => {
+    try {
+      const app = await appStore.setSupportsMfaChallenge(req.params.appId, req.body?.supportsMfaChallenge);
+      await activityLog.add('apps', `${actorName(req)} ${app.supportsMfaChallenge ? 'enabled' : 'disabled'} MFA challenge support for "${app.name}"`, actor(req), actorName(req));
+      res.json({ ok: true, app });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   /** Users a sysadmin has explicitly blocked from this one app (see app_access in migration 003). */
-  router.get('/apps/:appId/access', async (req, res) => {
+  router.get('/apps/:appId/access', asyncHandler(async (req, res) => {
     const blockedUids = await appStore.listBlockedUids(req.params.appId);
     const blocked = [];
     for (const uid of blockedUids) {
@@ -52,7 +68,7 @@ module.exports = function appsRoutes({ appStore, userStore, activityLog }) {
       if (profile) blocked.push({ uid: profile.uid, username: profile.username });
     }
     res.json({ blocked });
-  });
+  }));
 
   router.post('/apps/:appId/access/:uid/block', async (req, res) => {
     try {

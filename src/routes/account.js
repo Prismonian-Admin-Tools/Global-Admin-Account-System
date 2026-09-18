@@ -5,6 +5,7 @@ const multer = require('multer');
 const { verify: verifyPassword } = require('../utils/passwords');
 const { enforcePasswordPolicy } = require('../utils/enforcePasswordPolicy');
 const { matchesImageType } = require('../utils/imageSniff');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 const ALLOWED_AVATAR_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
@@ -25,11 +26,11 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
     return req.session && req.session.user ? req.session.user.uid : null;
   }
 
-  router.get('/account', async (req, res) => {
+  router.get('/account', asyncHandler(async (req, res) => {
     const profile = await userStore.getProfile(myUid(req));
     if (!profile) return res.status(404).json({ error: 'Account not found' });
     res.json(profile);
-  });
+  }));
 
   router.put('/account', express.json(), async (req, res) => {
     try {
@@ -37,7 +38,7 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
       const updates = {};
       if (fullName !== undefined) updates.fullName = String(fullName).slice(0, 100);
       if (description !== undefined) updates.description = String(description).slice(0, 300);
-      if (theme !== undefined && ['ember', 'ocean', 'forest', 'light'].includes(theme)) updates.theme = theme;
+      if (theme !== undefined && ['ember', 'ocean', 'forest', 'light', 'purple', 'blueSharp', 'purpleSharp'].includes(theme)) updates.theme = theme;
       const profile = await userStore.update(myUid(req), updates);
       res.json({ ok: true, profile });
     } catch (err) {
@@ -62,8 +63,53 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
       }
       await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
       const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
+      // Kills any tokens this account holds in OTHER apps (issued via
+      // /api/v1/login) — not this GAM frontend cookie session, a separate
+      // mechanism sessionStore doesn't touch. Otherwise a stolen app
+      // token survives the one recovery action a compromised user can
+      // take on their own.
+      await sessionStore.revokeAllForUser(uid);
       await activityLog.add('account', `${user.username} changed their password`, uid, user.username);
       res.json({ ok: true, profile });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /**
+   * The new-hire onboarding wizard — one-time, gated by requireGoodStanding
+   * on needs_onboarding the same way /account/password is gated on
+   * must_change_password (see middleware/frontendAuth.js). Only fills in
+   * fullName/email if IT left them blank at creation — this endpoint can
+   * never overwrite a value an admin already set. The password fields are
+   * only required (and only actually change anything) if the account still
+   * has must_change_password set, matching every other account creation.
+   */
+  router.put('/account/onboarding', express.json(), async (req, res) => {
+    try {
+      const uid = myUid(req);
+      const user = await userStore.findByUid(uid);
+      if (!user) return res.status(404).json({ error: 'Account not found' });
+      if (!user.needs_onboarding) {
+        return res.status(400).json({ error: 'Onboarding has already been completed for this account.' });
+      }
+
+      const { newPassword, confirmPassword, fullName, email } = req.body || {};
+      if (user.must_change_password) {
+        if (!newPassword || newPassword.length < 8) throw new Error('New password must be at least 8 characters');
+        if (newPassword !== confirmPassword) throw new Error('New password and confirmation do not match');
+        await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
+        await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
+      }
+
+      const updates = { needsOnboarding: false };
+      if (!user.full_name && fullName) updates.fullName = String(fullName).slice(0, 100);
+      if (!user.email && email) updates.email = email;
+      await userStore.update(uid, updates);
+
+      await sessionStore.revokeAllForUser(uid);
+      await activityLog.add('account', `${user.username} completed onboarding`, uid, user.username);
+      res.json({ ok: true, profile: await userStore.getProfile(uid) });
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -88,9 +134,9 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
    * account (issued via /api/v1/login), not GAM's own frontend cookie
    * session — those are separate mechanisms entirely.
    */
-  router.get('/account/sessions', async (req, res) => {
+  router.get('/account/sessions', asyncHandler(async (req, res) => {
     res.json(await sessionStore.listForUser(myUid(req)));
-  });
+  }));
 
   router.delete('/account/sessions/:tokenHash', async (req, res) => {
     const ok = await sessionStore.revokeByHash(req.params.tokenHash, myUid(req));

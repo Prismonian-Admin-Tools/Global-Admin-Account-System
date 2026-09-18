@@ -3,8 +3,8 @@ const crypto = require('crypto');
 
 // RFC 4226 (HOTP) / RFC 6238 (TOTP) — no external dependency, since this
 // is a well-specified, self-contained algorithm: HMAC-SHA1 over a
-// 30-second time counter, truncated to a 6-digit code. Dormant for now
-// (see routes/mfa.js) — nothing at login checks a submitted code yet.
+// 30-second time counter, truncated to a 6-digit code. Checked at login
+// via mfaStore.verifyLoginToken() — see mfaChallengeStore.js.
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const STEP_SECONDS = 30;

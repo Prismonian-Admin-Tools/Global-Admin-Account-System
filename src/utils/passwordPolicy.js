@@ -108,6 +108,13 @@ function countMatching(password, charset) {
 // rule instance an admin creates through the UI/CLI, no other code
 // changes needed. Each evaluate() returns null (passes) or a failure message. ----
 const RULE_TYPES = {
+  minLength: {
+    evaluate(password, params, label) {
+      const min = params.min || 8;
+      if (password.length < min) return label;
+      return null;
+    },
+  },
   minCount: {
     evaluate(password, params, label) {
       const min = params.min || 1;

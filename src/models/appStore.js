@@ -21,6 +21,10 @@ function toSafe(row) {
     disabled: row.disabled,
     authMethod: row.auth_method,
     redirectUris: row.redirect_uris || [],
+    // Opt-in: an app that hasn't set this keeps the old dormant behavior
+    // exactly — /login never looks at a user's mfa_enabled for it. See
+    // routes/apiV1.js.
+    supportsMfaChallenge: row.supports_mfa_challenge,
     createdAt: row.created_at,
   };
 }
@@ -38,8 +42,15 @@ class AppStore {
     this.pool = pool;
   }
 
-  async list() {
-    const { rows } = await this.pool.query('SELECT * FROM apps ORDER BY name ASC');
+  // Same rationale as UserStore.list(): capped even with no explicit
+  // limit, so this can't grow into an unbounded query/payload as the
+  // number of registered apps grows.
+  async list({ limit = 500, offset = 0 } = {}) {
+    const cappedLimit = Math.min(Math.max(1, Number(limit) || 500), 500);
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const { rows } = await this.pool.query(
+      'SELECT * FROM apps ORDER BY name ASC LIMIT $1 OFFSET $2', [cappedLimit, safeOffset]
+    );
     return rows.map(toSafe);
   }
 
@@ -89,6 +100,14 @@ class AppStore {
     if (!validRedirectUris(redirectUris)) throw new Error('Redirect URIs must be https:// (or http://localhost for local testing)');
     const { rows } = await this.pool.query(
       'UPDATE apps SET redirect_uris = $1 WHERE app_id = $2 RETURNING *', [redirectUris, appId]
+    );
+    if (!rows[0]) throw new Error('No such app');
+    return toSafe(rows[0]);
+  }
+
+  async setSupportsMfaChallenge(appId, supportsMfaChallenge) {
+    const { rows } = await this.pool.query(
+      'UPDATE apps SET supports_mfa_challenge = $1 WHERE app_id = $2 RETURNING *', [!!supportsMfaChallenge, appId]
     );
     if (!rows[0]) throw new Error('No such app');
     return toSafe(rows[0]);

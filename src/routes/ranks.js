@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const { CAPABILITIES } = require('../models/rankStore');
+const { asyncHandler } = require('../middleware/asyncHandler');
 
 module.exports = function ranksRoutes({ rankStore, activityLog, requireCapability, requireAnyCapability }) {
   const router = express.Router();
@@ -11,14 +12,14 @@ module.exports = function ranksRoutes({ rankStore, activityLog, requireCapabilit
   // Reading the rank list is also how the Users tab populates its role
   // picker, so anyone who can manage users needs it too — only creating,
   // editing, or deleting a rank is restricted to manageRanks itself.
-  router.get('/ranks', requireAnyCapability(['manageUsers', 'manageRanks']), async (req, res) => {
+  router.get('/ranks', requireAnyCapability(['manageUsers', 'manageRanks']), asyncHandler(async (req, res) => {
     res.json({ ranks: await rankStore.list(), capabilities: CAPABILITIES });
-  });
+  }));
 
   router.post('/ranks', requireCapability('manageRanks'), express.json(), async (req, res) => {
     try {
-      const { name, label, capabilities } = req.body || {};
-      const rank = await rankStore.create({ name, label, capabilities });
+      const { name, label, capabilities, color } = req.body || {};
+      const rank = await rankStore.create({ name, label, capabilities, color });
       await activityLog.add('ranks', `${actorName(req)} created rank "${rank.label}" (${rank.name})`, actor(req), actorName(req));
       res.json({ ok: true, rank });
     } catch (err) {
@@ -28,8 +29,8 @@ module.exports = function ranksRoutes({ rankStore, activityLog, requireCapabilit
 
   router.patch('/ranks/:name', requireCapability('manageRanks'), express.json(), async (req, res) => {
     try {
-      const { label, capabilities } = req.body || {};
-      const rank = await rankStore.update(req.params.name, { label, capabilities });
+      const { label, capabilities, color } = req.body || {};
+      const rank = await rankStore.update(req.params.name, { label, capabilities, color });
       await activityLog.add('ranks', `${actorName(req)} updated rank "${rank.label}"`, actor(req), actorName(req));
       res.json({ ok: true, rank });
     } catch (err) {
