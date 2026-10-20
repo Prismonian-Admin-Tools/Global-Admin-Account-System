@@ -135,7 +135,7 @@ async function main() {
     '/api/v1',
     requireApp(appStore),
     perAppRateLimit(config.rateLimit.perApp),
-    apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer, mfaStore, mfaChallengeStore })
+    apiV1Routes({ userStore, rankStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer, mfaStore, mfaChallengeStore })
   );
 
   /* =========================================================

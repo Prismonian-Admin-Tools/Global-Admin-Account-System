@@ -20,8 +20,24 @@ function clientIp(req) {
  * gets 'bad' here, since this endpoint isn't the contract it's supposed to
  * be using. Nothing else ever comes back from this endpoint.
  */
-module.exports = function apiV1Routes({ userStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer, mfaStore, mfaChallengeStore }) {
+module.exports = function apiV1Routes({ userStore, rankStore, appStore, sessionStore, failedLoginStore, activityLog, passwordPolicyStore, knownLoginStore, mailer, mfaStore, mfaChallengeStore }) {
   const router = express.Router();
+
+  /**
+   * Every user object this contract hands an app carries the full rank it
+   * belongs to — not just the bare `role` name — so an app can render a
+   * custom rank's real label/color and place it in its own hierarchy
+   * (permissionLevel) without a second round-trip or a hardcoded table of
+   * stock rank names. Purely additive: `role` is still there, unchanged.
+   */
+  async function withRank(profile) {
+    if (!profile) return profile;
+    const rank = rankStore ? await rankStore.findByName(profile.role) : null;
+    return {
+      ...profile,
+      rank: rank ? { name: rank.name, label: rank.label, color: rank.color, permissionLevel: rank.permissionLevel } : null,
+    };
+  }
 
   /**
    * The tail shared by /login (when no MFA challenge is needed) and
@@ -43,7 +59,7 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
       await activityLog.add('auth', `${user.username} signed in from a new address (via ${req.callingApp.slug})`, user.uid, user.username);
     }
 
-    return res.json({ status, token, user: toAppProfile(user) });
+    return res.json({ status, token, user: await withRank(toAppProfile(user)) });
   }
 
   router.post('/login', express.json(), async (req, res) => {
@@ -160,7 +176,7 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
       await sessionStore.revoke(token, req.callingApp.app_id);
       return res.json({ valid: false });
     }
-    return res.json({ valid: true, user: toAppProfile(user) });
+    return res.json({ valid: true, user: await withRank(toAppProfile(user)) });
   });
 
   router.post('/logout', express.json(), async (req, res) => {
@@ -217,7 +233,7 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
     await sessionStore.revokeAllForUser(uid);
     const newToken = await sessionStore.issue(uid, req.callingApp.app_id);
     await activityLog.add('account', `${user.username} changed their password (via ${req.callingApp.slug})`, uid, user.username);
-    res.json({ status: 'ok', token: newToken, user: omitMfaEnabled(profile) });
+    res.json({ status: 'ok', token: newToken, user: await withRank(omitMfaEnabled(profile)) });
   });
 
   /**
@@ -251,7 +267,7 @@ module.exports = function apiV1Routes({ userStore, appStore, sessionStore, faile
     if (theme !== undefined && ['ember', 'ocean', 'forest', 'light', 'purple', 'blueSharp', 'purpleSharp'].includes(theme)) updates.theme = theme;
 
     const profile = await userStore.update(uid, updates);
-    res.json({ status: 'ok', user: omitMfaEnabled(profile) });
+    res.json({ status: 'ok', user: await withRank(omitMfaEnabled(profile)) });
   });
 
   return router;

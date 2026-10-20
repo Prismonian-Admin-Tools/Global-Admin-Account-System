@@ -95,9 +95,16 @@ password change — that's the whole point of "forced."
   "avatarExt": null,
   "lastLogin": "2026-08-14T...",
   "createdAt": "...",
-  "updatedAt": "..."
+  "updatedAt": "...",
+  "rank": { "name": "systemAdministrator", "label": "Sysadmin", "color": "#ff8a3d", "permissionLevel": 200 }
 }
 ```
+
+`rank` is the full rank `role` refers to — its display label, badge
+color, and permission level — so an app can render custom ranks with
+their real name/color and slot them into its own access tiers without
+hardcoding Passport's stock rank names. It's purely additive; `role` is
+unchanged.
 
 `uid` is the stable key — store your app's own fine-grained
 data (per-app permissions, custom flags, whatever) keyed by `uid`, not
