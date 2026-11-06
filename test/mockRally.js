@@ -19,7 +19,14 @@ function startMockRally(port) {
         return send(200, { [env]: { Errors: ['Simulated Rally failure'], Warnings: [] } });
       }
       if (req.method === 'GET' && p === '/user') {
-        const m = /\(EmailAddress = "(.*)"\)/.exec(url.searchParams.get('query') || '');
+        const q = url.searchParams.get('query');
+        if (!q) {
+          // Paged listing, 1-based start, like WSAPI.
+          const all = [...state.users.values()].sort((a, b) => a.ObjectID - b.ObjectID);
+          const start = Number(url.searchParams.get('start') || 1); const size = Number(url.searchParams.get('pagesize') || 20);
+          return send(200, { QueryResult: { Errors: [], Warnings: [], TotalResultCount: all.length, StartIndex: start, PageSize: size, Results: all.slice(start - 1, start - 1 + size) } });
+        }
+        const m = /\(EmailAddress = "(.*)"\)/.exec(q);
         const results = [...state.users.values()].filter((u) => m && u.EmailAddress === m[1]);
         return send(200, { QueryResult: { Errors: [], Warnings: [], TotalResultCount: results.length, Results: results } });
       }

@@ -180,8 +180,12 @@ class UserStore {
    * temporary-password flow even for a Provider account: bootstrap.js,
    * whose password is typed/prompted fresh every time, not pre-chosen.
    * Writes span three tables, so it's one transaction.
+   *
+   * skipAccountSync: for callers that link the new account to an external
+   * account themselves (the Rally import, which already knows exactly
+   * which Rally user this is) instead of letting the sync go looking.
    */
-  async create({ username, password, role, fullName, description, email, forcePasswordChange = false }) {
+  async create({ username, password, role, fullName, description, email, forcePasswordChange = false, skipAccountSync = false }) {
     if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
     if (!username || !username.trim()) throw new Error('Username is required');
     if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
@@ -216,7 +220,7 @@ class UserStore {
 
     const profile = await this.getProfile(uid);
     if (this.mailer) await this.mailer.sendAccountCreated(profile);
-    await this.notifyAccountSync('onUserCreated', profile);
+    if (!skipAccountSync) await this.notifyAccountSync('onUserCreated', profile);
     return profile;
   }
 
@@ -394,6 +398,19 @@ class UserStore {
     const { rowCount } = await this.pool.query('DELETE FROM users WHERE uid = $1', [uid]);
     if (!rowCount) throw new Error('No such user');
     await this.notifyAccountSync('onUserDeleted', { uid, username: before ? before.username : null });
+  }
+
+  /**
+   * uid/username/email/disabled for EVERY account, uncapped (unlike
+   * list()) — for bulk matching such as the Rally import planner, which
+   * has to see all accounts to avoid creating duplicates.
+   */
+  async listIdentities() {
+    const { rows } = await this.pool.query(
+      `SELECT u.uid, un.username, d.email, d.disabled FROM users u
+       JOIN usernames un ON un.uid = u.uid JOIN userdata d ON d.uid = u.uid`
+    );
+    return rows;
   }
 
   async isEmpty() {

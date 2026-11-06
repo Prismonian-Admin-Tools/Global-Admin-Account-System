@@ -329,6 +329,50 @@ npm run cli -- rally sync <username>   # enroll an existing account / restart a 
 npm run cli -- rally retry             # fresh attempts for everything that failed
 ```
 
+### Importing existing Rally users
+
+`rally import-list` reads every user in the Rally subscription and shows
+what importing each would do; `rally import` does it for the users you
+pick. Both are CLI-only.
+
+```bash
+npm run cli -- rally import-list                       # table
+npm run cli -- rally import-list --csv rally-users.csv # also save a CSV to review/edit
+npm run cli -- rally import-list --json                # machine-readable
+npm run cli -- rally import ada@corp.com 12345678 --dry-run
+npm run cli -- rally import --from rally-users.csv     # the rows you left in the CSV
+npm run cli -- rally import --all                      # every importable user
+```
+
+For each Rally user the list says one of:
+
+| Action | Meaning |
+|---|---|
+| `create` | a new Passport account, linked to the Rally user |
+| `link` | a Passport account already matches — same email, or same username where the Passport account has no (or the same) email. Only the link is recorded; the Passport account's name, rank, password and status are left alone. If the two disagree on enabled/disabled, the **Rally** user is changed to match Passport (the note says so). |
+| `skip` | with the reason: already linked, username taken by a Passport account with a different email, two Rally users that would get the same username, several Passport accounts sharing the email |
+
+How new accounts are built:
+
+- **Username** — the part of the Rally login name before the `@`
+  (`ada.l@corp.com` → `ada.l`).
+- **Rank** — from the Rally subscription permission: Subscription Admin →
+  `systemAdministrator`, Workspace Admin → `elevatedStaff`, everyone else
+  → `staff`. Change it under `rally.import.roleMap` in `config.yml`. The
+  import output calls out every account it creates as a sysadmin.
+- **Disabled in Rally** → created disabled in Passport.
+- **Password** — Rally never exposes passwords, so each new account gets a
+  random temporary password (forced change on first login). They are
+  written only to a new CSV readable by you alone (`0600`; default
+  `./rally-import-passwords-<timestamp>.csv`, or `--passwords-file`),
+  never printed, and the file is never overwritten. Hand them out
+  securely, then delete the file.
+
+Rally users without an email are hidden unless `--include-no-email`.
+Every imported or linked account is marked as a *linked* Rally user, so
+it follows the normal sync above — and is never hard-deleted in Rally.
+Re-running is safe: already-linked users show as `skip`.
+
 ## Multi-factor authentication (dormant)
 
 A user can enroll in TOTP (authenticator-app codes) from My Account: a

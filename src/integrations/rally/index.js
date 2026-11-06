@@ -1,6 +1,7 @@
 'use strict';
 const { RallyClient } = require('./rallyClient');
 const { RallySync } = require('./rallySync');
+const { RallyImporter } = require('./rallyImport');
 
 /**
  * Builds the Rally account sync from config.yml's `rally:` section and
@@ -45,4 +46,10 @@ function setUpRallySync({ config, pool, userStore, activityLog = null }) {
   return sync;
 }
 
-module.exports = { setUpRallySync };
+/** The Rally user importer (CLI `rally import-list` / `rally import`), on top of an enabled sync. */
+function buildRallyImporter({ config, rallySync, userStore, rankStore }) {
+  const roleMap = ((config.rally || {}).import || {}).roleMap || {};
+  return new RallyImporter({ client: rallySync.client, rallySync, userStore, rankStore, roleMap });
+}
+
+module.exports = { setUpRallySync, buildRallyImporter };

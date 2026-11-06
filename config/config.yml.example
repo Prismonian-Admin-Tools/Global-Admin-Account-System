@@ -108,3 +108,12 @@ rally:
     language: "US English"
     locale: "US English"
     sessionTimeout: 3600
+  # Importing existing Rally users (`rally import-list` / `rally import`):
+  # the Passport rank a newly-created account gets, from the Rally user's
+  # subscription permission. Accounts that are only LINKED to an existing
+  # Passport account keep whatever rank they already have.
+  import:
+    roleMap:
+      subscriptionAdmin: "systemAdministrator"
+      workspaceAdmin: "elevatedStaff"
+      default: "staff"

@@ -16,6 +16,11 @@
 
 const API_PATH = '/slm/webservice/v2.0';
 
+const USER_LIST_FIELDS = [
+  'ObjectID', 'ObjectUUID', 'UserName', 'EmailAddress', 'FirstName', 'LastName', 'DisplayName',
+  'Disabled', 'SubscriptionAdmin', 'SubscriptionPermission', 'LastLoginDate',
+].join(',');
+
 class RallyError extends Error {
   constructor(message, { status = null, errors = [] } = {}) {
     super(message);
@@ -96,6 +101,26 @@ class RallyClient {
     const results = (result && result.Results) || [];
     if (results.length > 1) throw new RallyError(`More than one Rally user has the email address "${email}"`);
     return results[0] || null;
+  }
+
+  /**
+   * Every Rally user in the subscription the API key can see, paging
+   * through GET /user (WSAPI paging is 1-based `start` + `pagesize`).
+   * Ordered by ObjectID so pages stay stable while we walk them.
+   */
+  async listUsers({ fetch = USER_LIST_FIELDS, pageSize = 200, maxUsers = 100000 } = {}) {
+    const users = [];
+    let start = 1;
+    for (;;) {
+      const page = await this.request('GET', '/user', { query: { fetch, pagesize: pageSize, start, order: 'ObjectID' } });
+      const results = (page && page.Results) || [];
+      users.push(...results);
+      const total = Number(page && page.TotalResultCount) || 0;
+      start += results.length;
+      if (!results.length || start > total) break;
+      if (users.length >= maxUsers) throw new RallyError(`Rally returned more than ${maxUsers} users; refusing to continue`);
+    }
+    return users;
   }
 
   /** Fields: EmailAddress, Language, Locale, sessionTimeout (all required), plus any optional writable User field. */

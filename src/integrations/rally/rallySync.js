@@ -87,6 +87,37 @@ class RallySync {
     return this.reconcile(profile.uid);
   }
 
+  /**
+   * Records that a Passport account IS an existing Rally user (the Rally
+   * import), without searching Rally or creating anything. Marked
+   * linked_existing, so Passport will never hard-delete that Rally user.
+   * If the two disagree on enabled/disabled, Passport wins: the row is
+   * left out of sync and reconciled, which updates the Rally user.
+   * Refuses (returns null) if the Passport account is already linked to
+   * a different Rally user, or that Rally user to a different account.
+   */
+  async link(profile, rallyUser) {
+    const desired = profile.disabled ? 'disabled' : 'active';
+    const rallyState = rallyUser.Disabled ? 'disabled' : 'active';
+    const { rows } = await this.pool.query(
+      `INSERT INTO rally_accounts (uid, username, desired_state, rally_state, rally_object_id, rally_object_uuid, rally_email, linked_existing, in_sync)
+       SELECT $1, $2, $3, $4, $5, $6, $7, true, $3 = $4
+       WHERE NOT EXISTS (SELECT 1 FROM rally_accounts WHERE rally_object_id = $5 AND uid <> $1 AND desired_state <> 'deleted')
+       ON CONFLICT (uid) DO NOTHING
+       RETURNING *`,
+      [profile.uid, profile.username, desired, rallyState, rallyUser.ObjectID, rallyUser.ObjectUUID || null, rallyUser.EmailAddress || null]
+    );
+    if (!rows.length) return null;
+    await this.log(`Rally: linked "${profile.username}" to existing Rally user ${rallyUser.UserName || rallyUser.EmailAddress} (ObjectID ${rallyUser.ObjectID})`);
+    return rows[0].in_sync ? rows[0] : this.reconcile(profile.uid);
+  }
+
+  /** Every rally_accounts row for a live (not deleted) Passport link, keyed for the import planner. */
+  async activeLinks() {
+    const { rows } = await this.pool.query(`SELECT * FROM rally_accounts WHERE desired_state <> 'deleted'`);
+    return rows;
+  }
+
   /* ---------------- Reconciliation ---------------- */
 
   /** Brings one row in line with its desired state. Returns the row afterward. Never throws. */
