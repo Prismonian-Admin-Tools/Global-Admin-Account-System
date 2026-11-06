@@ -72,3 +72,39 @@ activity:
 
 failedLogins:
   file: "./data/failed-logins.yml"
+
+# Rally account sync (WSAPI v2.0). When enabled, every Passport account
+# created from now on gets a matching Rally user, and disabling,
+# re-enabling or deleting the Passport account does the same to that
+# Rally user. Accounts that existed before you turned this on are not
+# touched until you enroll them: `npm run cli -- rally sync <username>`.
+# Rally requires an email address, so an account without one waits until
+# an email is set. See README → "Rally account sync".
+rally:
+  enabled: false
+  baseUrl: "https://rally1.rallydev.com"
+  # A Rally API key for a Rally Subscription Administrator (only they can
+  # create users). Sent as the ZSESSIONID header. The RALLY_API_KEY
+  # environment variable overrides this, if you'd rather not keep the key
+  # in this file.
+  apiKey: ""
+  # What deleting a Passport account does to its Rally user:
+  #   disable — (default) disable it. Keeps the Rally user's stories,
+  #             defects, tasks and revision history intact; reversible.
+  #   delete  — permanently delete it in Rally. Cannot be undone.
+  # Either way, a Rally user that already existed and was only LINKED by
+  # email (not created by Passport) is only ever disabled, never deleted.
+  onPassportDelete: "disable"
+  # Failed Rally calls are retried in the background on this interval, up
+  # to maxAttempts times (then `npm run cli -- rally retry` to try again).
+  retryIntervalMinutes: 15
+  maxAttempts: 10
+  requestTimeoutSeconds: 15
+  # Required fields on every new Rally user. Allowed values per the WSAPI
+  # spec: language/locale "US English" or "None"; sessionTimeout (seconds)
+  # one of 600, 900, 1800, 3600, 7200, 14400, 21600, 28800, 36000,
+  # 432000, 1209600.
+  userDefaults:
+    language: "US English"
+    locale: "US English"
+    sessionTimeout: 3600

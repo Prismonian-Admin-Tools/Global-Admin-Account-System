@@ -1,14 +1,15 @@
 {
   "name": "gus",
   "version": "2.0.0",
-  "description": "Passport (formerly GAM/Global Admin Account System, formerly GUS) — central identity provider for Prismonian apps (owns accounts, ranks, and login; apps keep their own fine-grained data keyed by uid).",
+  "description": "Passport (formerly GAM/Global Admin Account System, formerly GUS) \u2014 central identity provider for Prismonian apps (owns accounts, ranks, and login; apps keep their own fine-grained data keyed by uid).",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
     "migrate": "node src/migrations/run.js",
     "bootstrap": "node scripts/bootstrap.js",
-    "cli": "node scripts/gus-cli.js"
+    "cli": "node scripts/gus-cli.js",
+    "test:rally": "node test/rally.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

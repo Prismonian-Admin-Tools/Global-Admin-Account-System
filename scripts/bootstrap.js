@@ -16,6 +16,8 @@ const { initPool } = require('../src/db');
 const { UserStore } = require('../src/models/userStore');
 const { RankStore } = require('../src/models/rankStore');
 const { AppStore } = require('../src/models/appStore');
+const { ActivityLog } = require('../src/models/activityLog');
+const { setUpRallySync } = require('../src/integrations/rally');
 const { promptPassword } = require('./lib/passwordInput');
 const { warnSecretOutput } = require('./lib/secretWarning');
 
@@ -47,6 +49,7 @@ async function main() {
   const rankStore = new RankStore(pool);
   const userStore = new UserStore(pool, rankStore);
   const appStore = new AppStore(pool);
+  setUpRallySync({ config, pool, userStore, activityLog: new ActivityLog(pool) });
 
   // forcePasswordChange:true — a Provider account skips the forced
   // change by default (see userStore.create()), but this password was

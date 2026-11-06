@@ -277,6 +277,58 @@ holds authorization codes, single-use and short-lived (60 seconds) —
 consuming one is an atomic `UPDATE ... WHERE used = false`, so a code
 can't be redeemed twice even under a race.
 
+## Rally account sync
+
+When `rally.enabled` is on in `config.yml`, Passport keeps a matching
+Rally user (via the Rally WebService API v2.0) for each account it creates:
+
+| Passport | Rally |
+|---|---|
+| account created | user created (`POST /user/create`) — or, if a Rally user with the same email already exists, **linked** to it instead of creating a duplicate |
+| account disabled / re-enabled | user disabled / re-enabled (`POST /user/{ObjectID}` with `Disabled`) |
+| account deleted | user **disabled** by default; permanently deleted (`DELETE /user/{ObjectID}`) only if `rally.onPassportDelete: delete` |
+
+All three paths — admin panel, CLI and bootstrap — go through
+`UserStore`, which is where the hooks live, so they all sync the same way.
+
+**Rally being down never blocks Passport.** Each change records what
+Passport *wants* the Rally user to look like (`rally_accounts`, migration
+014) and then tries to apply it. If the call fails — including Rally's
+habit of answering HTTP 200 with an `Errors` array — the Passport
+operation still succeeds, the error is stored, and a background sweep
+retries every `retryIntervalMinutes` up to `maxAttempts` times. Rows are
+claimed before being worked, so the request path and the sweep can't
+both create the same Rally user.
+
+Rules worth knowing:
+
+- **Rally requires an email address.** An account without one shows as
+  "Waiting for an email address" and is created in Rally as soon as an
+  email is set.
+- **Linked users are never hard-deleted.** A Rally user Passport matched
+  by email (rather than created) is only ever disabled, even with
+  `onPassportDelete: delete`. Passport *is* the source of truth for its
+  enabled/disabled state, though — re-enabling the Passport account
+  re-enables it in Rally.
+- **Only new accounts are synced automatically.** Accounts that existed
+  before Rally sync was turned on are left alone until enrolled with
+  `rally sync <username>`.
+- Not synced: later email/name changes to an already-created Rally user,
+  workspace/project permissions (new Rally users start with none), and
+  per-app blocks.
+- The API key must belong to a Rally **Subscription Administrator**. It's
+  sent as the `ZSESSIONID` header, which (unlike Basic auth) needs no
+  per-request security token. `RALLY_API_KEY` overrides `rally.apiKey`.
+- Every Rally action and first/final failure is written to the activity
+  log under the `rally` category.
+
+```bash
+npm run cli -- rally status            # every enrolled account's sync state
+npm run cli -- rally status <username> # one account in detail (Rally ObjectID, last error)
+npm run cli -- rally sync <username>   # enroll an existing account / restart a stuck one
+npm run cli -- rally retry             # fresh attempts for everything that failed
+```
+
 ## Multi-factor authentication (dormant)
 
 A user can enroll in TOTP (authenticator-app codes) from My Account: a
