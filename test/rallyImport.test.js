@@ -49,6 +49,7 @@ const { startMockRally } = require('./mockRally');
   R(111, 'linked@corp.com', 'linked@corp.com');
   R(112, 'evil@corp.com', 'evil@corp.com', { FirstName: '=HYPERLINK("x")', LastName: 'Evil' });
   R(113, 'gone@corp.com', 'gone@corp.com');
+  R(114, 'pend@corp.com', 'pend@corp.com');
   for (let i = 0; i < 250; i++) R(1000 + i, `filler${i}@f.com`, `filler${i}@f.com`);
   const rallyCount = mock.state.users.size;
 
@@ -58,6 +59,10 @@ const { startMockRally } = require('./mockRally');
   await mk('sam', 'sam@other.com');
   const linked = await mk('linked', 'linked@corp.com');
   await sync.link(await userStore.getProfile(linked.uid), mock.state.users.get(111));
+  // Enrolled in sync but never got a Rally user (Rally was down at creation):
+  // not really linked, so the import may link it.
+  const pend = await mk('pend', 'pend@corp.com');
+  await pool.query("INSERT INTO rally_accounts (uid, username, desired_state, attempts, last_error) VALUES ($1, 'pend', 'active', 3, 'Rally down')", [pend.uid]);
   const gone = await mk('gone', 'gone@corp.com');
   await userStore.update(gone.uid, { disabled: true });
 
@@ -76,6 +81,7 @@ const { startMockRally } = require('./mockRally');
   assert.equal(by['109'].action, 'skip'); assert.equal(by['110'].action, 'skip'); assert.match(by['109'].note, /shared by 2/);
   assert.equal(by['111'].action, 'skip'); assert.match(by['111'].note, /already linked to Passport account "linked"/);
   assert.equal(by['113'].action, 'link'); assert.match(by['113'].note, /DISABLED to match/);
+  assert.deepEqual([by['114'].action, by['114'].linkTo], ['link', 'pend']);
   ok('import-list plans create / link / skip correctly, maps ranks, pages through Rally');
 
   const withNoEmail = await importer.planImport({ includeNoEmail: true });
@@ -102,11 +108,11 @@ const { startMockRally } = require('./mockRally');
   // 4. real import by identifier
   const pwFile = path.join(tmp, 'pw.csv');
   const { results } = await importer.importUsers({
-    select: { identifiers: ['boss@corp.com', '102', 'JOE@corp.com', 'jane.smith@corp.com', 'pat@x.com', 'sam@x.com', 'old@corp.com', '113'] },
+    select: { identifiers: ['boss@corp.com', '102', 'JOE@corp.com', 'jane.smith@corp.com', 'pat@x.com', 'sam@x.com', 'old@corp.com', '113', '114'] },
     passwordsFile: pwFile,
   });
   const out = Object.fromEntries(results.map((x) => [x.row.rallyObjectId, x.outcome]));
-  assert.deepEqual(out, { 101: 'created', 102: 'created', 103: 'created', 104: 'created', 106: 'linked', 107: 'linked', 108: 'skipped', 113: 'linked' });
+  assert.deepEqual(out, { 101: 'created', 102: 'created', 103: 'created', 104: 'created', 106: 'linked', 107: 'linked', 108: 'skipped', 113: 'linked', 114: 'linked' });
   const boss = await userStore.findByUsername('boss');
   assert.deepEqual([boss.role, boss.full_name, boss.email, boss.must_change_password], ['systemAdministrator', 'Big Boss', 'boss@corp.com', true]);
   assert.equal((await userStore.findByUsername('wanda')).role, 'elevatedStaff');
@@ -116,7 +122,7 @@ const { startMockRally } = require('./mockRally');
   assert.deepEqual([js.full_name, js.role, js.email], ['Jane Original', 'staff', 'jane@corp.com']);
   assert.equal(mock.state.users.size, rallyCount, 'no Rally users created');
   assert.equal(mock.state.users.get(113).Disabled, true, 'linked Rally user disabled to match Passport');
-  for (const u of ['boss', 'wanda', 'joe', 'old', 'jsmith', 'pat', 'gone']) {
+  for (const u of ['boss', 'wanda', 'joe', 'old', 'jsmith', 'pat', 'gone', 'pend']) {
     const row = await sync.get((await userStore.findByUsername(u)).uid);
     assert.equal(row.linked_existing, true, u); assert.equal(row.in_sync, true, u);
   }

@@ -95,6 +95,9 @@ class RallySync {
    * left out of sync and reconciled, which updates the Rally user.
    * Refuses (returns null) if the Passport account is already linked to
    * a different Rally user, or that Rally user to a different account.
+   * An enrolled account that never got a Rally user yet (rally_object_id
+   * NULL — e.g. Rally was down when it was created, or it has no email)
+   * isn't linked to anything, so it can be linked here.
    */
   async link(profile, rallyUser) {
     const desired = profile.disabled ? 'disabled' : 'active';
@@ -103,7 +106,12 @@ class RallySync {
       `INSERT INTO rally_accounts (uid, username, desired_state, rally_state, rally_object_id, rally_object_uuid, rally_email, linked_existing, in_sync)
        SELECT $1, $2, $3, $4, $5, $6, $7, true, $3 = $4
        WHERE NOT EXISTS (SELECT 1 FROM rally_accounts WHERE rally_object_id = $5 AND uid <> $1 AND desired_state <> 'deleted')
-       ON CONFLICT (uid) DO NOTHING
+       ON CONFLICT (uid) DO UPDATE SET
+         username = EXCLUDED.username, desired_state = EXCLUDED.desired_state, rally_state = EXCLUDED.rally_state,
+         rally_object_id = EXCLUDED.rally_object_id, rally_object_uuid = EXCLUDED.rally_object_uuid,
+         rally_email = EXCLUDED.rally_email, linked_existing = true, in_sync = EXCLUDED.in_sync,
+         attempts = 0, last_error = NULL, updated_at = now()
+       WHERE rally_accounts.rally_object_id IS NULL AND rally_accounts.desired_state <> 'deleted'
        RETURNING *`,
       [profile.uid, profile.username, desired, rallyState, rallyUser.ObjectID, rallyUser.ObjectUUID || null, rallyUser.EmailAddress || null]
     );
@@ -112,9 +120,11 @@ class RallySync {
     return rows[0].in_sync ? rows[0] : this.reconcile(profile.uid);
   }
 
-  /** Every rally_accounts row for a live (not deleted) Passport link, keyed for the import planner. */
+  /** Every live link between a Passport account and an actual Rally user, for the import planner. */
   async activeLinks() {
-    const { rows } = await this.pool.query(`SELECT * FROM rally_accounts WHERE desired_state <> 'deleted'`);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM rally_accounts WHERE desired_state <> 'deleted' AND rally_object_id IS NOT NULL`
+    );
     return rows;
   }
 
