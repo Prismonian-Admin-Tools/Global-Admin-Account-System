@@ -24,6 +24,9 @@ const { RULE_TYPES } = require('../src/utils/passwordPolicy');
 const { EmailSettingsStore } = require('../src/models/emailSettingsStore');
 const { Mailer } = require('../src/utils/mailer');
 const { warnSecretOutput } = require('./lib/secretWarning');
+const fs = require('fs');
+const { setUpRallySync, buildRallyImporter } = require('../src/integrations/rally');
+const { rowsToCsv, rowsToJson, objectIdsFromCsv } = require('../src/integrations/rally/rallyImport');
 
 function parseArgs(argv) {
   const positional = [];
@@ -115,6 +118,27 @@ PASSWORD POLICY
   password-policy set-enabled <id> <on|off>
   password-policy delete <id>
 
+RALLY ACCOUNT SYNC   (needs rally.enabled in config.yml)
+  rally status [username]   Sync state of every enrolled account, or one in detail
+  rally sync <username>     Enroll an account (e.g. one created before Rally sync
+                            was on) and sync it now; also restarts a stuck one
+  rally retry               Give every failed account fresh attempts and retry now
+
+  rally import-list [--csv FILE|-] [--json] [--include-no-email]
+        Every Rally user and what importing it would do: create a Passport
+        account, link to an existing one (same email/username — the
+        Passport account is left unchanged), or skip (and why). Rally users
+        with no email are hidden unless --include-no-email.
+  rally import <rally-user ...> | --from FILE | --all
+               [--passwords-file FILE] [--dry-run] [--include-no-email]
+        Import the given Rally users (by UserName, email or ObjectID), the
+        rows left in an edited import-list CSV (--from), or every
+        importable one (--all). New accounts get temporary passwords,
+        written ONLY to a new owner-read-only CSV (default
+        ./rally-import-passwords-<timestamp>.csv), never printed. Ranks:
+        Subscription Admin -> systemAdministrator, Workspace Admin ->
+        elevatedStaff, everyone else -> staff (rally.import.roleMap).
+
 EMAIL (SMTP)
   email show
   email set-smtp [--host H] [--port P] [--secure true|false] [--username U] [--password P] [--from-address A] [--from-name N]
@@ -147,6 +171,7 @@ async function main() {
   const activityLog = new ActivityLog(pool);
   const siteSettingsStore = new SiteSettingsStore(pool);
   const passwordPolicyStore = new PasswordPolicyStore(pool);
+  const rallySync = setUpRallySync({ config, pool, userStore, activityLog });
 
   async function requireUser(username) {
     const user = await userStore.findByUsername(username);
@@ -451,6 +476,115 @@ async function main() {
       console.log('Rule deleted.');
     } else {
       console.error('Unknown password-policy subcommand. See --help.'); process.exit(1);
+    }
+    return pool.end();
+  }
+
+  if (cmd === 'rally') {
+    const { positional } = parseArgs(rest);
+    if (!rallySync) { console.error('Rally sync is off — set rally.enabled: true (and an API key) in config.yml.'); process.exit(1); }
+    const describe = (r) => {
+      if (r.in_sync) return r.desired_state === 'deleted' ? 'done (passport account deleted)' : 'in sync';
+      if (r.last_error) return r.attempts ? `FAILED x${r.attempts}: ${r.last_error}` : r.last_error;
+      return 'pending';
+    };
+    if (sub === 'status') {
+      if (positional[0]) {
+        const user = await userStore.findByUsername(positional[0]);
+        const rows = user ? [await rallySync.get(user.uid)] : (await rallySync.list()).filter((r) => r.username.toLowerCase() === positional[0].toLowerCase());
+        const row = rows.find(Boolean);
+        if (!row) { console.error(`"${positional[0]}" isn't enrolled in Rally sync. Run: rally sync ${positional[0]}`); process.exit(1); }
+        console.log(JSON.stringify(row, null, 2));
+      } else {
+        table(await rallySync.list(), [
+          { label: 'USERNAME', get: (r) => r.username },
+          { label: 'WANT', get: (r) => r.desired_state },
+          { label: 'RALLY', get: (r) => r.rally_state || '-' },
+          { label: 'OBJECTID', get: (r) => r.rally_object_id || '-' },
+          { label: 'LINKED', get: (r) => (r.linked_existing ? 'yes' : '') },
+          { label: 'STATUS', get: describe },
+        ]);
+      }
+    } else if (sub === 'sync') {
+      const user = await requireUser(positional[0]);
+      const row = await rallySync.enroll(await userStore.getProfile(user.uid));
+      console.log(`"${user.username}": ${row ? describe(row) : 'sync failed, see logs'}${row && row.rally_object_id ? ` (Rally ObjectID ${row.rally_object_id})` : ''}`);
+      if (row && !row.in_sync) process.exitCode = 1;
+    } else if (sub === 'import-list' || sub === 'import') {
+      // Own parsing: the shared parseArgs() would swallow the identifier
+      // after a boolean flag (`--dry-run ada` -> dry-run = "ada").
+      const BOOLEAN = new Set(['json', 'include-no-email', 'all', 'dry-run']);
+      const opts = {}; const ids = [];
+      for (let i = 0; i < rest.length; i++) {
+        const a = rest[i];
+        if (!a.startsWith('--')) { ids.push(a); continue; }
+        const key = a.slice(2);
+        if (BOOLEAN.has(key)) opts[key] = true;
+        else if (rest[i + 1] === undefined) { console.error(`--${key} needs a value`); process.exit(1); }
+        else opts[key] = rest[++i];
+      }
+      const importer = buildRallyImporter({ config, rallySync, userStore, rankStore });
+      const counts = (rows) => ['create', 'link', 'skip'].map((a) => `${rows.filter((r) => r.action === a).length} ${a}`).join(', ');
+
+      if (sub === 'import-list') {
+        const { rows, hiddenNoEmail } = await importer.planImport({ includeNoEmail: Boolean(opts['include-no-email']) });
+        if (opts.json) {
+          console.log(JSON.stringify({ users: rowsToJson(rows), hiddenNoEmail }, null, 2));
+        } else if (opts.csv === '-') {
+          process.stdout.write(rowsToCsv(rows));
+        } else {
+          if (opts.csv) { fs.writeFileSync(opts.csv, rowsToCsv(rows)); }
+          table(rows, [
+            { label: 'RALLY USER', get: (r) => r.rallyUserName || r.email },
+            { label: 'PERMISSION', get: (r) => r.rallyPermission },
+            { label: 'RALLY', get: (r) => (r.rallyDisabled ? 'disabled' : 'active') },
+            { label: 'PASSPORT USER', get: (r) => r.passportUsername },
+            { label: 'RANK', get: (r) => r.passportRank || '(unchanged)' },
+            { label: 'ACTION', get: (r) => r.action },
+            { label: 'NOTE', get: (r) => r.note },
+          ]);
+          console.log(`\n${rows.length} Rally user(s): ${counts(rows)}.${hiddenNoEmail ? ` ${hiddenNoEmail} without an email hidden (--include-no-email to show).` : ''}`);
+          if (opts.csv) console.log(`Saved to ${opts.csv}. Delete the rows you don't want, then: rally import --from ${opts.csv}`);
+        }
+      } else {
+        let select;
+        if (opts.all) select = { all: true };
+        else if (opts.from) select = { identifiers: objectIdsFromCsv(fs.readFileSync(opts.from, 'utf8')) };
+        else if (ids.length) select = { identifiers: ids };
+        else { console.error('Usage: rally import <rally-user ...> | --from FILE | --all [--passwords-file FILE] [--dry-run]'); process.exit(1); }
+        if (select.identifiers && !select.identifiers.length) { console.error('Nothing selected.'); process.exit(1); }
+
+        const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
+        const passwordsFile = opts['passwords-file'] || `rally-import-passwords-${stamp}.csv`;
+        const dryRun = Boolean(opts['dry-run']);
+        const { results, passwordsFile: written } = await importer.importUsers({
+          select, includeNoEmail: Boolean(opts['include-no-email']), dryRun, passwordsFile,
+        });
+        table(results, [
+          { label: 'RALLY USER', get: (x) => x.row.rallyUserName || x.row.email },
+          { label: 'PASSPORT USER', get: (x) => x.row.passportUsername },
+          { label: 'RANK', get: (x) => x.row.passportRank || '(unchanged)' },
+          { label: 'RESULT', get: (x) => x.outcome },
+          { label: 'DETAIL', get: (x) => x.detail },
+        ]);
+        const tally = {};
+        results.forEach((x) => { tally[x.outcome] = (tally[x.outcome] || 0) + 1; });
+        console.log(`\n${dryRun ? 'Dry run — nothing changed. ' : ''}${Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing to do'}.`);
+        const admins = results.filter((x) => (x.outcome === 'created' || x.outcome === 'would create') && x.row.passportRank === 'systemAdministrator');
+        if (admins.length) console.log(`NOTE: ${admins.length} account(s) ${dryRun ? 'would be' : 'were'} created as systemAdministrator: ${admins.map((x) => x.row.passportUsername).join(', ')}`);
+        if (written) {
+          console.log(`Temporary passwords were written to ${written} (readable only by you). Hand them out securely, then delete the file.`);
+        }
+        if (results.some((x) => x.outcome === 'failed')) process.exitCode = 1;
+      }
+    } else if (sub === 'retry') {
+      const reset = await rallySync.resetFailed();
+      const ran = await rallySync.sweep({ limit: 1000 });
+      const remaining = (await rallySync.list()).filter((r) => !r.in_sync);
+      console.log(`Reset ${reset} failed account(s); retried ${ran}. Still out of sync: ${remaining.length}.`);
+      remaining.forEach((r) => console.log(`  ${r.username}: ${describe(r)}`));
+    } else {
+      console.error('Unknown rally subcommand. See --help.'); process.exit(1);
     }
     return pool.end();
   }

@@ -22,6 +22,7 @@ const { MfaStore } = require('./models/mfaStore');
 const { MfaChallengeStore } = require('./models/mfaChallengeStore');
 const { Mailer } = require('./utils/mailer');
 const { runPasswordExpirySweep } = require('./jobs/passwordExpirySweep');
+const { setUpRallySync } = require('./integrations/rally');
 
 const { requireApp } = require('./middleware/appAuth');
 const { perAppRateLimit } = require('./middleware/rateLimit');
@@ -46,6 +47,7 @@ const OIDC_CODE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const FAILED_LOGIN_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const FAILED_LOGIN_RETENTION_DAYS = 90;
 const MFA_CHALLENGE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+const DEFAULT_RALLY_RETRY_INTERVAL_MINUTES = 15;
 
 async function main() {
   const config = loadConfig();
@@ -66,6 +68,19 @@ async function main() {
   const oidcCodeStore = new OidcCodeStore(pool);
   const mfaStore = new MfaStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
   const mfaChallengeStore = new MfaChallengeStore(pool);
+
+  // Rally account sync (off unless config.rally.enabled) — mirrors
+  // create/disable/enable/delete of Passport accounts into Rally users.
+  // Each change is attempted immediately; anything that failed (Rally
+  // down, rejected request) is retried by the sweep below.
+  const rallySync = setUpRallySync({ config, pool, userStore, activityLog });
+  if (rallySync) {
+    const minutes = Number(config.rally.retryIntervalMinutes) || DEFAULT_RALLY_RETRY_INTERVAL_MINUTES;
+    const runRallySweep = () => rallySync.sweep().catch((err) => console.error('Rally sync sweep failed:', err.message));
+    runRallySweep();
+    setInterval(runRallySweep, minutes * 60 * 1000);
+    console.log(`Rally account sync enabled (${config.rally.baseUrl || 'https://rally1.rallydev.com'}).`);
+  }
 
   if (await userStore.isEmpty()) {
     console.warn('\n⚠  No users exist yet in the GAM database.');

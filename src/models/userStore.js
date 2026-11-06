@@ -91,6 +91,29 @@ class UserStore {
     this.pool = pool;
     this.rankStore = rankStore;
     this.mailer = mailer;
+    // Optional external-account sync (currently Rally — see
+    // src/integrations/rally/). Attached after construction because it
+    // needs this store back to read profiles.
+    this.accountSync = null;
+  }
+
+  setAccountSync(accountSync) {
+    this.accountSync = accountSync;
+  }
+
+  /**
+   * Runs one accountSync hook without ever letting it fail the Passport
+   * operation that triggered it — an external system being down must not
+   * stop an account being created, disabled or deleted here. The sync
+   * records its own failures and retries them later.
+   */
+  async notifyAccountSync(hook, ...args) {
+    if (!this.accountSync || typeof this.accountSync[hook] !== 'function') return;
+    try {
+      await this.accountSync[hook](...args);
+    } catch (err) {
+      console.error(`Account sync ${hook} failed:`, err.message);
+    }
   }
 
   async findByUsername(username) {
@@ -157,8 +180,12 @@ class UserStore {
    * temporary-password flow even for a Provider account: bootstrap.js,
    * whose password is typed/prompted fresh every time, not pre-chosen.
    * Writes span three tables, so it's one transaction.
+   *
+   * skipAccountSync: for callers that link the new account to an external
+   * account themselves (the Rally import, which already knows exactly
+   * which Rally user this is) instead of letting the sync go looking.
    */
-  async create({ username, password, role, fullName, description, email, forcePasswordChange = false }) {
+  async create({ username, password, role, fullName, description, email, forcePasswordChange = false, skipAccountSync = false }) {
     if (!(await this.rankStore.exists(role))) throw new Error('Invalid role');
     if (!username || !username.trim()) throw new Error('Username is required');
     if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
@@ -193,6 +220,7 @@ class UserStore {
 
     const profile = await this.getProfile(uid);
     if (this.mailer) await this.mailer.sendAccountCreated(profile);
+    if (!skipAccountSync) await this.notifyAccountSync('onUserCreated', profile);
     return profile;
   }
 
@@ -346,6 +374,9 @@ class UserStore {
     if (this.mailer && !before.must_change_password && profile.mustChangePassword) {
       await this.mailer.sendPasswordChangeRequired(profile);
     }
+    if (before.disabled !== profile.disabled || (before.email || null) !== (profile.email || null)) {
+      await this.notifyAccountSync('onUserUpdated', toProfile(before), profile);
+    }
     return profile;
   }
 
@@ -363,8 +394,23 @@ class UserStore {
 
   /** Cascades to usernames/passwords/userdata (and sessions, password_history, etc.) via their FKs to users(uid). */
   async remove(uid) {
+    const before = await this.findByUid(uid);
     const { rowCount } = await this.pool.query('DELETE FROM users WHERE uid = $1', [uid]);
     if (!rowCount) throw new Error('No such user');
+    await this.notifyAccountSync('onUserDeleted', { uid, username: before ? before.username : null });
+  }
+
+  /**
+   * uid/username/email/disabled for EVERY account, uncapped (unlike
+   * list()) — for bulk matching such as the Rally import planner, which
+   * has to see all accounts to avoid creating duplicates.
+   */
+  async listIdentities() {
+    const { rows } = await this.pool.query(
+      `SELECT u.uid, un.username, d.email, d.disabled FROM users u
+       JOIN usernames un ON un.uid = u.uid JOIN userdata d ON d.uid = u.uid`
+    );
+    return rows;
   }
 
   async isEmpty() {

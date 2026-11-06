@@ -277,6 +277,102 @@ holds authorization codes, single-use and short-lived (60 seconds) —
 consuming one is an atomic `UPDATE ... WHERE used = false`, so a code
 can't be redeemed twice even under a race.
 
+## Rally account sync
+
+When `rally.enabled` is on in `config.yml`, Passport keeps a matching
+Rally user (via the Rally WebService API v2.0) for each account it creates:
+
+| Passport | Rally |
+|---|---|
+| account created | user created (`POST /user/create`) — or, if a Rally user with the same email already exists, **linked** to it instead of creating a duplicate |
+| account disabled / re-enabled | user disabled / re-enabled (`POST /user/{ObjectID}` with `Disabled`) |
+| account deleted | user **disabled** by default; permanently deleted (`DELETE /user/{ObjectID}`) only if `rally.onPassportDelete: delete` |
+
+All three paths — admin panel, CLI and bootstrap — go through
+`UserStore`, which is where the hooks live, so they all sync the same way.
+
+**Rally being down never blocks Passport.** Each change records what
+Passport *wants* the Rally user to look like (`rally_accounts`, migration
+014) and then tries to apply it. If the call fails — including Rally's
+habit of answering HTTP 200 with an `Errors` array — the Passport
+operation still succeeds, the error is stored, and a background sweep
+retries every `retryIntervalMinutes` up to `maxAttempts` times. Rows are
+claimed before being worked, so the request path and the sweep can't
+both create the same Rally user.
+
+Rules worth knowing:
+
+- **Rally requires an email address.** An account without one shows as
+  "Waiting for an email address" and is created in Rally as soon as an
+  email is set.
+- **Linked users are never hard-deleted.** A Rally user Passport matched
+  by email (rather than created) is only ever disabled, even with
+  `onPassportDelete: delete`. Passport *is* the source of truth for its
+  enabled/disabled state, though — re-enabling the Passport account
+  re-enables it in Rally.
+- **Only new accounts are synced automatically.** Accounts that existed
+  before Rally sync was turned on are left alone until enrolled with
+  `rally sync <username>`.
+- Not synced: later email/name changes to an already-created Rally user,
+  workspace/project permissions (new Rally users start with none), and
+  per-app blocks.
+- The API key must belong to a Rally **Subscription Administrator**. It's
+  sent as the `ZSESSIONID` header, which (unlike Basic auth) needs no
+  per-request security token. `RALLY_API_KEY` overrides `rally.apiKey`.
+- Every Rally action and first/final failure is written to the activity
+  log under the `rally` category.
+
+```bash
+npm run cli -- rally status            # every enrolled account's sync state
+npm run cli -- rally status <username> # one account in detail (Rally ObjectID, last error)
+npm run cli -- rally sync <username>   # enroll an existing account / restart a stuck one
+npm run cli -- rally retry             # fresh attempts for everything that failed
+```
+
+### Importing existing Rally users
+
+`rally import-list` reads every user in the Rally subscription and shows
+what importing each would do; `rally import` does it for the users you
+pick. Both are CLI-only.
+
+```bash
+npm run cli -- rally import-list                       # table
+npm run cli -- rally import-list --csv rally-users.csv # also save a CSV to review/edit
+npm run cli -- rally import-list --json                # machine-readable
+npm run cli -- rally import ada@corp.com 12345678 --dry-run
+npm run cli -- rally import --from rally-users.csv     # the rows you left in the CSV
+npm run cli -- rally import --all                      # every importable user
+```
+
+For each Rally user the list says one of:
+
+| Action | Meaning |
+|---|---|
+| `create` | a new Passport account, linked to the Rally user |
+| `link` | a Passport account already matches — same email, or same username where the Passport account has no (or the same) email. Only the link is recorded; the Passport account's name, rank, password and status are left alone. If the two disagree on enabled/disabled, the **Rally** user is changed to match Passport (the note says so). |
+| `skip` | with the reason: already linked, username taken by a Passport account with a different email, two Rally users that would get the same username, several Passport accounts sharing the email |
+
+How new accounts are built:
+
+- **Username** — the part of the Rally login name before the `@`
+  (`ada.l@corp.com` → `ada.l`).
+- **Rank** — from the Rally subscription permission: Subscription Admin →
+  `systemAdministrator`, Workspace Admin → `elevatedStaff`, everyone else
+  → `staff`. Change it under `rally.import.roleMap` in `config.yml`. The
+  import output calls out every account it creates as a sysadmin.
+- **Disabled in Rally** → created disabled in Passport.
+- **Password** — Rally never exposes passwords, so each new account gets a
+  random temporary password (forced change on first login). They are
+  written only to a new CSV readable by you alone (`0600`; default
+  `./rally-import-passwords-<timestamp>.csv`, or `--passwords-file`),
+  never printed, and the file is never overwritten. Hand them out
+  securely, then delete the file.
+
+Rally users without an email are hidden unless `--include-no-email`.
+Every imported or linked account is marked as a *linked* Rally user, so
+it follows the normal sync above — and is never hard-deleted in Rally.
+Re-running is safe: already-linked users show as `skip`.
+
 ## Multi-factor authentication (dormant)
 
 A user can enroll in TOTP (authenticator-app codes) from My Account: a

@@ -2,3 +2,4 @@ node_modules/
 config/config.yml
 data/
 .env
+rally-import-passwords-*.csv
