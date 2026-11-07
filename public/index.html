@@ -320,7 +320,10 @@ const ICONS = {
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
 };
 
-const state = { profile: null, view: 'dashboard', branding: { siteName: 'Passport', logoExt: null }, ranks: [] };
+// hideDisabledUsers: the Users tab's "Hide disabled users" toggle. On by
+// default; kept here (not per render) so it survives the tab re-rendering
+// after a bulk action, and resets to on with every page load.
+const state = { profile: null, view: 'dashboard', branding: { siteName: 'Passport', logoExt: null }, ranks: [], hideDisabledUsers: true };
 
 async function api(path, opts = {}) {
   const isForm = opts.body instanceof FormData;
@@ -1123,12 +1126,35 @@ async function renderUsers(content) {
   }
 
   const search = el('input', { type: 'text', placeholder: 'Search username…' });
-  const tbody = el('tbody', {}, users.map(makeRow));
-  search.addEventListener('input', () => {
+  const hideDisabled = el('input', { type: 'checkbox' });
+  hideDisabled.checked = state.hideDisabledUsers;
+  const disabledCount = users.filter((u) => u.disabled).length;
+  const summary = el('div', { class: 'pagesub' });
+  const tbody = el('tbody');
+
+  function renderRows() {
     const q = search.value.toLowerCase();
+    const visible = users.filter((u) => !(state.hideDisabledUsers && u.disabled) && u.username.toLowerCase().includes(q));
+    // A hidden row can't stay selected — otherwise a bulk Enable/Disable/
+    // Delete would act on accounts the admin can no longer see.
+    const visibleUids = new Set(visible.map((u) => u.uid));
+    for (const uid of [...selected]) if (!visibleUids.has(uid)) selected.delete(uid);
+    updateBulkBar();
+
     tbody.innerHTML = '';
-    users.filter((u) => u.username.toLowerCase().includes(q)).forEach((u) => tbody.appendChild(makeRow(u)));
-  });
+    visible.forEach((u) => tbody.appendChild(makeRow(u)));
+    if (!visible.length) {
+      const why = users.length && !q && state.hideDisabledUsers ? 'Every account is disabled — untick "Hide disabled users" to see them.' : 'No users match.';
+      tbody.appendChild(el('tr', {}, [el('td', { colspan: '5', class: 'empty-note', text: why })]));
+    }
+
+    const hiddenNote = state.hideDisabledUsers && disabledCount ? ` ${disabledCount} disabled hidden.` : '';
+    summary.textContent = `${users.length} account${users.length === 1 ? '' : 's'} registered with Passport.${hiddenNote}`;
+  }
+
+  search.addEventListener('input', renderRows);
+  hideDisabled.addEventListener('change', () => { state.hideDisabledUsers = hideDisabled.checked; renderRows(); });
+  renderRows();
 
   const table = tableWrap(el('table', {}, [
     el('thead', {}, [el('tr', {}, [el('th', { class: 'checkcol' }), ...tableHeaders(['User', 'Role', 'Status', ''])])]),
@@ -1136,9 +1162,12 @@ async function renderUsers(content) {
   ]));
   content.appendChild(el('div', {}, [
     el('h2', {}, [icon('users'), el('span', { text: 'Users' })]),
-    el('div', { class: 'pagesub', text: `${users.length} account${users.length === 1 ? '' : 's'} registered with Passport.` }),
+    summary,
     el('div', { class: 'toolbar' }, [
-      search,
+      el('div', { style: 'display:flex;gap:14px;align-items:center;flex-wrap:wrap' }, [
+        search,
+        el('label', { class: 'checkline', style: 'margin:0;cursor:pointer' }, [hideDisabled, el('span', { text: 'Hide disabled users' })]),
+      ]),
       el('div', { style: 'display:flex;gap:8px' }, [
         el('button', { class: 'btn-ghost', text: 'Import CSV', onclick: openImportCsvModal }),
         el('button', { class: 'btn-primary', text: '+ New user', onclick: () => openCreateUserModal() }),
