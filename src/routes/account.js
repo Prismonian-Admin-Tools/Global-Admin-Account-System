@@ -62,7 +62,7 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
         if (!verifyPassword(currentPassword, user.password_hash)) throw new Error('Current password is incorrect');
       }
       await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
-      const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
+      const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true, changedBy: 'self' });
       // Kills any tokens this account holds in OTHER apps (issued via
       // /api/v1/login) — not this GAM frontend cookie session, a separate
       // mechanism sessionStore doesn't touch. Otherwise a stolen app
@@ -99,7 +99,7 @@ module.exports = function accountRoutes({ config, userStore, passwordPolicyStore
         if (!newPassword || newPassword.length < 8) throw new Error('New password must be at least 8 characters');
         if (newPassword !== confirmPassword) throw new Error('New password and confirmation do not match');
         await enforcePasswordPolicy({ passwordPolicyStore, userStore, uid, password: newPassword });
-        await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
+        await userStore.resetPassword(uid, newPassword, { clearMustChange: true, changedBy: 'self' });
       }
 
       const updates = { needsOnboarding: false };

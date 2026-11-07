@@ -224,7 +224,7 @@ module.exports = function apiV1Routes({ userStore, rankStore, appStore, sessionS
       return res.status(400).json({ status: 'invalid_request', error: err.message });
     }
 
-    const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true });
+    const profile = await userStore.resetPassword(uid, newPassword, { clearMustChange: true, changedBy: 'self' });
     // Kills every token this account holds, across every app — including
     // the one just used for this request — so a stolen token doesn't
     // survive the one recovery action a compromised user can take on

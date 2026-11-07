@@ -163,13 +163,13 @@ async function main() {
   const pool = initPool(config.database);
   const rankStore = new RankStore(pool);
   const emailSettingsStore = new EmailSettingsStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
-  const mailer = new Mailer(emailSettingsStore);
+  const siteSettingsStore = new SiteSettingsStore(pool);
+  const mailer = new Mailer(emailSettingsStore, { siteSettingsStore, publicUrl: config.server.publicUrl });
   const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
   const sessionStore = new SessionStore(pool, config.session);
   const failedLoginStore = new FailedLoginStore(pool, config.rateLimit.login);
   const activityLog = new ActivityLog(pool);
-  const siteSettingsStore = new SiteSettingsStore(pool);
   const passwordPolicyStore = new PasswordPolicyStore(pool);
   const rallySync = setUpRallySync({ config, pool, userStore, activityLog });
 
@@ -608,7 +608,7 @@ async function main() {
     } else if (sub === 'send-test') {
       const to = positional[0];
       if (!to) { console.error('Usage: email send-test <address>'); process.exit(1); }
-      const result = await mailer.sendMail({ to, subject: 'GAM test email', html: '<p>This is a test email from the GAM CLI.</p>' });
+      const result = await mailer.sendTest(to, { sentBy: 'the command-line tool' });
       console.log(result.sent ? `Sent to ${to}.` : `Not sent: ${result.reason}`);
     } else {
       console.error('Unknown email subcommand. See --help.'); process.exit(1);

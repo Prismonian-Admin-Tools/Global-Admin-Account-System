@@ -55,13 +55,13 @@ async function main() {
 
   const rankStore = new RankStore(pool);
   const emailSettingsStore = new EmailSettingsStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
-  const mailer = new Mailer(emailSettingsStore);
+  const siteSettingsStore = new SiteSettingsStore(pool);
+  const mailer = new Mailer(emailSettingsStore, { siteSettingsStore, publicUrl: config.server.publicUrl });
   const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
   const sessionStore = new SessionStore(pool, config.session);
   const failedLoginStore = new FailedLoginStore(pool, config.rateLimit.login);
   const activityLog = new ActivityLog(pool);
-  const siteSettingsStore = new SiteSettingsStore(pool);
   const passwordPolicyStore = new PasswordPolicyStore(pool);
   const knownLoginStore = new KnownLoginStore(pool);
   const oidcKeyStore = new OidcKeyStore(pool, config.server.encryptionKey);

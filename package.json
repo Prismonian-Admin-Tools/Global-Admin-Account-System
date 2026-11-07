@@ -9,7 +9,8 @@
     "migrate": "node src/migrations/run.js",
     "bootstrap": "node scripts/bootstrap.js",
     "cli": "node scripts/gus-cli.js",
-    "test:rally": "node test/rally.test.js && node test/rallyImport.test.js"
+    "test:rally": "node test/rally.test.js && node test/rallyImport.test.js",
+    "test:email": "node test/emails.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

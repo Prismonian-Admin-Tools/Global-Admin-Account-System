@@ -219,7 +219,10 @@ class UserStore {
     }
 
     const profile = await this.getProfile(uid);
-    if (this.mailer) await this.mailer.sendAccountCreated(profile);
+    // Includes the password so the new user can actually sign in — it's
+    // temporary (forced change at first sign-in) for every rank except a
+    // Provider account, see skipOnboarding above.
+    if (this.mailer) await this.mailer.sendAccountCreated(profile, { password });
     if (!skipAccountSync) await this.notifyAccountSync('onUserCreated', profile);
     return profile;
   }
@@ -248,8 +251,11 @@ class UserStore {
    * apiV1.js) explicitly pass true here, since the user just picked that
    * password themselves. Callers that want to hand someone a permanent
    * password without forcing a follow-up change must opt in explicitly.
+   *
+   * changedBy ('self' | 'admin') only picks the wording of the "password
+   * changed" email; self-service call sites pass 'self'.
    */
-  async resetPassword(uid, newPassword, { clearMustChange = false } = {}) {
+  async resetPassword(uid, newPassword, { clearMustChange = false, changedBy = 'admin' } = {}) {
     if (!newPassword || newPassword.length < 8) throw new Error('Password must be at least 8 characters');
     const before = await this.findByUid(uid);
     if (!before) throw new Error('No such user');
@@ -284,7 +290,7 @@ class UserStore {
     await this.pool.query('DELETE FROM password_expiry_notices WHERE uid = $1', [uid]);
 
     const profile = await this.getProfile(uid);
-    if (this.mailer) await this.mailer.sendPasswordChanged(profile);
+    if (this.mailer) await this.mailer.sendPasswordChanged(profile, { changedBy });
     return profile;
   }
 

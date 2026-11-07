@@ -28,10 +28,7 @@ module.exports = function emailRoutes({ emailSettingsStore, mailer, userStore, a
       const me = await userStore.findByUid(req.session.user.uid);
       const to = req.body?.to || (me && me.email);
       if (!to) throw new Error('No recipient — pass "to", or set an email address on your own account first.');
-      const result = await mailer.sendMail({
-        to, subject: 'GAM test email',
-        html: `<p>This is a test email from GAM, sent by ${req.session.user.username}. If you got this, SMTP is working.</p>`,
-      });
+      const result = await mailer.sendTest(to, { sentBy: req.session.user.username });
       if (!result.sent) return res.status(400).json({ error: `Not sent: ${result.reason}` });
       res.json({ ok: true });
     } catch (err) {
