@@ -4,6 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Passport</title>
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png" />
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
 <style>
   :root {
     --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -110,6 +114,9 @@
   /* ---- brand mark ---- */
   .brandmark { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: 0.01em; font-size: 16px; }
   .brandmark .logo { width: 26px; height: 26px; flex-shrink: 0; }
+  /* The built-in Passport shield is taller than wide, so size by height. */
+  .brandmark .logo-builtin { width: auto; height: 28px; object-fit: contain; }
+  .card .brandmark .logo-builtin { height: 36px; }
   .brandmark .dot { fill: var(--accent); }
   .brandmark .ring { stroke: var(--text-dim); }
   .brandmark .word span { color: var(--accent); }
@@ -438,14 +445,9 @@ function brandmark() {
       el('span', { class: 'word', text: state.branding.siteName }),
     ]);
   }
-  // A passport booklet outline with a simple portrait-and-shoulders emblem
-  // in the middle — inline so it recolors with the active theme via the
-  // same CSS vars every other icon uses, no image asset needed.
-  const logo = `<svg class="logo" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
-    <rect x="4" y="2" width="18" height="22" rx="2.5" fill="none" stroke="var(--text-dim)" stroke-width="1.6" opacity=".55"/>
-    <circle cx="13" cy="10.3" r="3.2" fill="var(--accent)" opacity=".9"/>
-    <path d="M8.3 18.6c1.15-1.7 2.8-2.5 4.7-2.5s3.55.8 4.7 2.5" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" opacity=".85"/>
-  </svg>`;
+  // The built-in Passport shield logo (public/brand/) — used whenever no
+  // custom logo has been uploaded in Branding.
+  const logo = '<img class="logo logo-builtin" src="/brand/passport-logo.png" alt="" />';
   const name = state.branding.siteName || 'Passport';
   const wordHtml = name === 'Passport'
     ? 'Pass<span>port</span>'
@@ -1459,6 +1461,8 @@ function openImportCsvModal() {
  * interpolation, so a username/password containing HTML-special
  * characters can't break the generated page.
  */
+const HANDOUT_LOGO_DATA_URI = 'data:image/png;base64,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';
+
 function downloadLogonHandout({ kind, username, password, fullName, roleLabel, rules }) {
   const isSheet = kind === 'sheet';
   const noun = isSheet ? 'Logon sheet' : 'Logon card';
@@ -1467,7 +1471,8 @@ function downloadLogonHandout({ kind, username, password, fullName, roleLabel, r
   style.textContent = `
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f2; margin: 0; padding: 40px 16px; display: flex; justify-content: center; }
     .card { width: 100%; max-width: ${isSheet ? '460px' : '380px'}; border: 2px solid #1a1a1a; border-radius: 14px; padding: 28px; background: #fff; color: #111; box-sizing: border-box; }
-    .brand { font-weight: 800; font-size: 18px; margin-bottom: 2px; }
+    .brand { font-weight: 800; font-size: 18px; margin-bottom: 2px; display: flex; align-items: center; gap: 10px; }
+    .brand img { height: 32px; width: auto; }
     .sub { color: #666; font-size: 12px; margin-bottom: 20px; }
     .row { margin-bottom: 14px; }
     .k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #888; }
@@ -1490,7 +1495,12 @@ function downloadLogonHandout({ kind, username, password, fullName, roleLabel, r
   }
 
   const card = doc.createElement('div'); card.className = 'card';
-  const brand = doc.createElement('div'); brand.className = 'brand'; brand.textContent = state.branding.siteName || 'Passport';
+  const brand = doc.createElement('div'); brand.className = 'brand';
+  // Single-colour shield, embedded (the handout is a standalone downloaded
+  // file, so it can't load images from this server).
+  const brandLogo = doc.createElement('img'); brandLogo.src = HANDOUT_LOGO_DATA_URI; brandLogo.alt = '';
+  const brandName = doc.createElement('span'); brandName.textContent = state.branding.siteName || 'Passport';
+  brand.append(brandLogo, brandName);
   const sub = doc.createElement('div'); sub.className = 'sub'; sub.textContent = noun + ' — keep this confidential';
   card.append(brand, sub);
   card.appendChild(row('Username', username));

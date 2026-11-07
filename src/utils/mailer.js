@@ -66,6 +66,8 @@ class Mailer {
         console.error('Could not load branding for email:', err.message);
       }
     }
+    // No custom logo uploaded: the built-in Passport shield (public/brand/).
+    if (!logoUrl && this.publicUrl) logoUrl = `${this.publicUrl}/brand/passport-logo-email.png`;
     return { siteName, logoUrl };
   }
 
@@ -258,7 +260,7 @@ function renderEmail({ subject, preheader, heading, intro = [], details = [], st
 <tr><td align="center" style="padding:32px 16px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;font-family:${FONT};">
     <tr><td style="padding:0 4px 16px;font-size:18px;font-weight:700;color:${c.text};">
-      ${brand.logoUrl ? `<img src="${escapeHtml(brand.logoUrl)}" alt="" height="28" style="height:28px;vertical-align:middle;margin-right:8px;border:0;">` : ''}<span style="vertical-align:middle;">${escapeHtml(brand.siteName)}</span>
+      ${brand.logoUrl ? `<img src="${escapeHtml(brand.logoUrl)}" alt="" height="28" style="height:28px;width:auto;vertical-align:middle;margin-right:8px;border:0;">` : ''}<span style="vertical-align:middle;">${escapeHtml(brand.siteName)}</span>
     </td></tr>
     <tr><td style="background:${c.card};border:1px solid ${c.border};border-top:4px solid ${c.accent};border-radius:8px;padding:28px 28px 24px;">
       <h1 style="margin:0 0 16px;font-size:21px;line-height:1.3;color:${c.text};">${escapeHtml(heading)}</h1>
