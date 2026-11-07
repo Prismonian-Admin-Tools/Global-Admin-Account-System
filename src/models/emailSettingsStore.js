@@ -1,8 +1,19 @@
 'use strict';
 const secretBox = require('../utils/secretBox');
 
+// Older CLI builds constructed this store with the wrong arguments, which
+// left encryptionKey undefined — so `email set-smtp --password` encrypted
+// the SMTP password under the literal key "undefined", which the server
+// could never decrypt ("Unsupported state or unable to authenticate
+// data"). Accepted as a last-resort decryption key so passwords saved that
+// way keep working; a value under that key was never really protected, so
+// reading it adds no exposure, and the next save re-encrypts it properly.
+const BROKEN_CLI_KEY = 'undefined';
+
 class EmailSettingsStore {
   constructor(pool, { encryptionKey, legacySessionSecret } = {}) {
+    // Fail loudly instead of silently encrypting under a bogus key (see above).
+    if (!encryptionKey) throw new Error('EmailSettingsStore needs { encryptionKey } (config.server.encryptionKey)');
     this.pool = pool;
     this.encryptionKey = encryptionKey;
     this.legacySessionSecret = legacySessionSecret;
@@ -41,7 +52,7 @@ class EmailSettingsStore {
       secure: row.secure,
       username: row.username,
       password: row.encrypted_password
-        ? secretBox.decryptWithFallback(row.encrypted_password, this.encryptionKey, [this.legacySessionSecret])
+        ? secretBox.decryptWithFallback(row.encrypted_password, this.encryptionKey, [this.legacySessionSecret, BROKEN_CLI_KEY])
         : null,
       fromAddress: row.from_address,
       fromName: row.from_name,

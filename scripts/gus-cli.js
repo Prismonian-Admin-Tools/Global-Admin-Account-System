@@ -162,7 +162,7 @@ async function main() {
   const config = loadConfig();
   const pool = initPool(config.database);
   const rankStore = new RankStore(pool);
-  const emailSettingsStore = new EmailSettingsStore(pool, config.server.sessionSecret);
+  const emailSettingsStore = new EmailSettingsStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
   const mailer = new Mailer(emailSettingsStore);
   const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
