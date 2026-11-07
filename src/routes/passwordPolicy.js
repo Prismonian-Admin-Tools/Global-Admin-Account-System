@@ -9,11 +9,10 @@ module.exports = function passwordPolicyRoutes({ passwordPolicyStore, activityLo
   function actor(req) { return req.session.user.uid; }
   function actorName(req) { return req.session.user.username; }
 
-  // Reading the rules is also how the Users tab's logon-sheet handout
-  // shows a new account's password requirements, so anyone who can
-  // manage users needs it too — only creating, editing, or deleting a
-  // rule is restricted to managePasswordPolicy itself. Same pattern as
-  // /ranks's own GET (see ranks.js).
+  // Readable by anyone who can manage users too (originally for the Users
+  // tab's printable logon sheet, since removed) — only creating, editing,
+  // or deleting a rule is restricted to managePasswordPolicy itself. Same
+  // pattern as /ranks's own GET (see ranks.js).
   router.get('/password-policy', requireAnyCapability(['manageUsers', 'managePasswordPolicy']), asyncHandler(async (req, res) => {
     res.json({ rules: await passwordPolicyStore.list(), ruleTypes: Object.keys(RULE_TYPES) });
   }));
