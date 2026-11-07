@@ -1,5 +1,8 @@
 'use strict';
+const fs = require('fs');
+const path = require('path');
 const nodemailer = require('nodemailer');
+const { IpLookup } = require('./ipLookup');
 
 // Every send goes through here so the rest of the app never has to think
 // about whether email is configured: if it isn't (or the user has no
@@ -9,22 +12,41 @@ const nodemailer = require('nodemailer');
 // settings, the same "takes effect without a restart" pattern branding
 // uses — SMTP is sent rarely enough that this isn't worth pooling.
 //
-// Every notification is built by renderEmail() below: one branded HTML
-// layout (table-based with inline styles, since that's what email clients
-// actually render) plus a real plain-text version, not tag-stripped HTML.
+// Every notification uses renderEmail() below: the fixed banner
+// (public/brand/email-banner.png, attached inline so it shows without the
+// reader having to "load images" from our server), a heading, an optional
+// details section and button, and a small footer — plus a plain-text
+// version. Replies go to the Support email address set in Settings.
+
+const BANNER_PATH = path.join(__dirname, '..', '..', 'public', 'brand', 'email-banner.png');
+const BANNER_CID = 'banner@passport';
+let bannerCache;
+function bannerAttachment() {
+  if (bannerCache === undefined) {
+    try { bannerCache = fs.readFileSync(BANNER_PATH); } catch (err) {
+      console.error('Email banner missing:', err.message);
+      bannerCache = null;
+    }
+  }
+  return bannerCache ? { filename: 'banner.png', content: bannerCache, cid: BANNER_CID, contentType: 'image/png' } : null;
+}
+
 class Mailer {
   /**
-   * siteSettingsStore: optional — supplies the site name (and logo) shown
-   * in emails, so a rename in Branding shows up without a restart.
-   * publicUrl: optional — Passport's public address, for sign-in buttons.
+   * siteSettingsStore: site name, organization name and support email.
+   * publicUrl: Passport's public address, for sign-in and reset links.
+   * resetLinkStore: issues the one-time "Reset password" / "Wasn't you?" links.
+   * ipLookup: config.ipLookup (city / ISP / VPN for unfamiliar sign-ins).
    */
-  constructor(emailSettingsStore, { siteSettingsStore = null, publicUrl = null } = {}) {
+  constructor(emailSettingsStore, { siteSettingsStore = null, publicUrl = null, resetLinkStore = null, ipLookup = {} } = {}) {
     this.emailSettingsStore = emailSettingsStore;
     this.siteSettingsStore = siteSettingsStore;
     this.publicUrl = publicUrl ? String(publicUrl).replace(/\/+$/, '') : null;
+    this.resetLinkStore = resetLinkStore;
+    this.ipLookup = ipLookup instanceof IpLookup ? ipLookup : new IpLookup(ipLookup);
   }
 
-  async sendMail({ to, subject, html, text }) {
+  async sendMail({ to, subject, html, text, replyTo, attachments }) {
     if (!to) return { sent: false, reason: 'no-recipient-address' };
     let settings;
     try {
@@ -45,6 +67,8 @@ class Mailer {
       await transport.sendMail({
         from: settings.fromAddress ? `"${settings.fromName}" <${settings.fromAddress}>` : settings.fromName,
         to, subject, html, text: text || html.replace(/<[^>]+>/g, ''),
+        ...(replyTo ? { replyTo } : {}),
+        ...(attachments && attachments.length ? { attachments } : {}),
       });
       return { sent: true };
     } catch (err) {
@@ -53,273 +77,254 @@ class Mailer {
     }
   }
 
-  /** Site name + logo URL for the email header. Never throws — falls back to "Passport". */
-  async branding() {
-    let siteName = 'Passport';
-    let logoUrl = null;
-    if (this.siteSettingsStore) {
-      try {
-        const s = await this.siteSettingsStore.get();
-        if (s && s.siteName) siteName = s.siteName;
-        if (s && s.logoExt && this.publicUrl) logoUrl = `${this.publicUrl}/branding/logo.${s.logoExt}`;
-      } catch (err) {
-        console.error('Could not load branding for email:', err.message);
-      }
+  /** Site name, organization name and support email. Never throws. */
+  async org() {
+    const out = { siteName: 'Passport', orgName: '', supportEmail: '' };
+    if (!this.siteSettingsStore) return out;
+    try {
+      const s = typeof this.siteSettingsStore.getFull === 'function'
+        ? await this.siteSettingsStore.getFull() : await this.siteSettingsStore.get();
+      if (s.siteName) out.siteName = s.siteName;
+      out.orgName = s.orgName || '';
+      out.supportEmail = s.supportEmail || '';
+    } catch (err) {
+      console.error('Could not load organization settings for email:', err.message);
     }
-    // No custom logo uploaded: the built-in Passport shield (public/brand/).
-    if (!logoUrl && this.publicUrl) logoUrl = `${this.publicUrl}/brand/passport-logo-email.png`;
-    return { siteName, logoUrl };
+    return out;
   }
 
-  /** Builds a notification from structured content and sends it. */
-  async sendNotification(user, content) {
-    if (!user.email) return { sent: false, reason: 'no-recipient-address' };
-    const brand = await this.branding();
-    const { subject, html, text } = renderEmail({ ...content, brand, signInUrl: this.publicUrl, recipient: user });
-    return this.sendMail({ to: user.email, subject, html, text });
+  /** A one-time /reset-password link, or null if links can't be made (no publicUrl / store). */
+  async oneTimeLink(user, purpose) {
+    if (!this.resetLinkStore || !this.publicUrl || !user.uid) return null;
+    try {
+      const token = await this.resetLinkStore.issue(user.uid, purpose);
+      return `${this.publicUrl}/reset-password#${token}`;
+    } catch (err) {
+      console.error('Could not create one-time link:', err.message);
+      return null;
+    }
   }
 
-  /** Settings check from the Email page / `email send-test`, in the same layout as real notifications. */
-  async sendTest(to, { sentBy = null } = {}) {
-    const brand = await this.branding();
-    const { subject, html, text } = renderEmail({
-      subject: `${brand.siteName} test email`,
-      preheader: 'Your email settings are working.',
-      heading: 'Email is working',
-      intro: [`If you can read this, ${brand.siteName} can send email with its current settings. Account notifications (new accounts, password changes, expiry reminders and new sign-in alerts) will be delivered like this one.`],
-      details: [['Sent to', to], ['Sent', formatDate(new Date())], ...(sentBy ? [['Sent by', sentBy]] : [])],
-      footerReason: 'You\'re receiving this because someone sent a test message from the email settings.',
-      brand, signInUrl: null, recipient: { username: 'there' },
+  async send(to, org, content) {
+    const { subject, html, text } = renderEmail({ ...content, org });
+    const banner = bannerAttachment();
+    return this.sendMail({
+      to, subject, html, text,
+      replyTo: org.supportEmail || undefined,
+      attachments: banner ? [banner] : [],
     });
-    return this.sendMail({ to, subject, html, text });
+  }
+
+  /** Settings check from the Email page / `email send-test`. */
+  async sendTest(to, { sentBy = null } = {}) {
+    const org = await this.org();
+    return this.send(to, org, {
+      subject: `${org.siteName} test email`,
+      heading: 'Hello.',
+      paragraphs: [`This is a test email from ${org.siteName}${sentBy ? `, sent by ${sentBy}` : ''}. If you can read it, email is working.`],
+      footer: 'You are receiving this email because someone sent a test message from the email settings.',
+    });
   }
 
   /**
-   * password: the password the account was created with, included so the
-   * new user can actually sign in. Labelled "temporary" whenever the
-   * account must change it at first sign-in (every account except a
-   * Provider/trustedInstaller one, see userStore.create()).
+   * password: the password the account was created with (temporary unless
+   * it's a Provider account, see userStore.create()). rankLabel: the
+   * rank's display name.
    */
-  async sendAccountCreated(user, { password = null } = {}) {
-    const temporary = user.mustChangePassword !== false;
-    const details = [
-      ['Username', user.username, { mono: true }],
-      ...(password ? [[temporary ? 'Temporary password' : 'Password', password, { mono: true, strong: true }]] : []),
-      ...(user.fullName ? [['Name', user.fullName]] : []),
-      ['Email', user.email],
+  async sendAccountCreated(user, { password = null, rankLabel = null } = {}) {
+    if (!user.email) return { sent: false, reason: 'no-recipient-address' };
+    const org = await this.org();
+    const who = org.orgName ? `${org.orgName} has created a ${org.siteName} account in your name.`
+      : `A ${org.siteName} account has been created in your name.`;
+    return this.send(user.email, org, {
+      subject: `Your ${org.siteName} account`,
+      heading: `Hello ${displayName(user)}.`,
+      paragraphs: [`${who} Your account details are included.`],
+      sectionTitle: 'Account details',
+      rows: [
+        ['Username', user.username],
+        ...(password ? [['Password', password, { mono: true }]] : []),
+        ['Rank', rankLabel || user.role],
+      ],
+      after: [
+        this.publicUrl ? { text: 'Please sign in at ', link: this.publicUrl } : { text: 'Please sign in.' },
+        ...(user.mustChangePassword !== false ? [{ text: 'You will be prompted to change your password at login.' }] : []),
+      ],
+      footer: 'You are receiving this email because an administrator has created an account in your name.',
+    });
+  }
+
+  async sendUnknownLogon(user, { ip, headers = {} } = {}) {
+    if (!user.email) return { sent: false, reason: 'no-recipient-address' };
+    const [org, where, link] = await Promise.all([
+      this.org(), this.ipLookup.lookup(ip, headers), this.oneTimeLink(user, 'compromised'),
+    ]);
+    const city = where.private ? 'Local network'
+      : [where.city, where.region, where.country].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(', ') || 'Unknown';
+    const rows = [
+      ['IP address', ip || 'Unknown', { mono: true }],
+      ['City', city],
+      ['ISP', where.private ? 'Local network' : (where.isp || 'Unknown')],
     ];
-    const steps = [
-      `Sign in${this.publicUrl ? ` at ${this.publicUrl}` : ''} with the username and ${temporary ? 'temporary ' : ''}password above.`,
-      ...(temporary ? ['You\'ll be asked to choose a new password of your own straight away — the temporary one stops working once you do.'] : []),
-      ...(user.needsOnboarding ? ['A short setup will walk you through adding your name and profile picture.'] : []),
-    ];
-    return this.sendNotification(user, {
-      subject: 'Your account is ready',
-      preheader: `Your username is ${user.username}.`,
-      heading: 'Welcome aboard',
-      intro: [`An account has been created for you. Here are your sign-in details:`],
-      details,
-      stepsTitle: 'Getting started',
-      steps,
-      button: 'Sign in',
-      notice: password
-        ? `Keep this email private${temporary ? ' and change your password at first sign-in' : ''}. ${'Never share your password — an administrator will never ask you for it.'}`
-        : null,
-      footerReason: 'You\'re receiving this because an administrator created an account for this email address. If you weren\'t expecting it, let your administrator know.',
+    if (where.vpn) {
+      rows.push(['Warning', `This sign-in came through a ${where.vpnType && where.vpnType !== 'Proxy' ? where.vpnType : 'VPN or proxy'}${where.isp ? ` (${where.isp})` : ''}, so the city above may not be where the person really is.`, { warn: true }]);
+    }
+    return this.send(user.email, org, {
+      subject: 'New sign-in from an unfamiliar location',
+      heading: `Hello ${displayName(user)}, you are receiving this email because someone has signed in from an unfamiliar location.`,
+      sectionTitle: 'Information',
+      rows,
+      button: link ? { text: 'Wasn\'t you? Sign this user out and change your password.', url: link, danger: true } : null,
+      after: link ? [] : [{ text: 'If this wasn\'t you, sign in and change your password right away.' }],
+      footer: 'You are receiving this email because someone signed in to your account from a location it hasn\'t used before.',
+    });
+  }
+
+  async sendPasswordExpirySoon(user) {
+    if (!user.email) return { sent: false, reason: 'no-recipient-address' };
+    const [org, link] = await Promise.all([this.org(), this.oneTimeLink(user, 'reset')]);
+    const when = user.passwordExpiresAt ? ` on ${formatDate(user.passwordExpiresAt)}` : ' soon';
+    return this.send(user.email, org, {
+      subject: `Your password expires${when}`,
+      heading: `Hello, ${displayName(user)}, you are receiving this email because your password is going to expire${when}. Please reset your password now.`,
+      button: link ? { text: 'Reset password', url: link } : null,
+      after: link ? [] : [{ text: 'Sign in and change your password from My Account.' }],
+      footer: 'You are receiving this email because your account\'s password has an expiry date.',
+    });
+  }
+
+  async sendPasswordExpired(user) {
+    if (!user.email) return { sent: false, reason: 'no-recipient-address' };
+    const [org, link] = await Promise.all([this.org(), this.oneTimeLink(user, 'reset')]);
+    return this.send(user.email, org, {
+      subject: 'Your password has expired',
+      heading: `Hello, ${displayName(user)}, you are receiving this email because your password has expired. Please reset your password now.`,
+      button: link ? { text: 'Reset password', url: link } : null,
+      after: link ? [] : [{ text: 'You will be prompted to choose a new password the next time you sign in.' }],
+      footer: 'You are receiving this email because your account\'s password has expired.',
     });
   }
 
   async sendPasswordChangeRequired(user) {
-    return this.sendNotification(user, {
-      subject: 'Action needed: change your password',
-      preheader: 'You\'ll be asked for a new password the next time you sign in.',
-      heading: 'Please change your password',
-      intro: ['An administrator has asked you to change your password.'],
-      details: [['Username', user.username, { mono: true }], ['Requested', formatDate(new Date())]],
-      stepsTitle: 'What happens next',
-      steps: [
-        'The next time you sign in, you\'ll be asked to choose a new password before you can continue.',
-        'Your current password still works until then, but only to get you to that step.',
-      ],
-      button: 'Sign in and change it',
-      footerReason: 'You\'re receiving this because a password change was required on your account.',
+    if (!user.email) return { sent: false, reason: 'no-recipient-address' };
+    const [org, link] = await Promise.all([this.org(), this.oneTimeLink(user, 'reset')]);
+    return this.send(user.email, org, {
+      subject: 'Please change your password',
+      heading: `Hello ${displayName(user)}, you are receiving this email because an administrator has asked you to change your password.`,
+      paragraphs: ['You will be prompted to change it the next time you sign in, or you can change it now.'],
+      button: link ? { text: 'Reset password', url: link } : null,
+      footer: 'You are receiving this email because a password change was required on your account.',
     });
   }
 
   /** changedBy: 'self' (the user changed it themselves) or 'admin' (an administrator reset it). */
   async sendPasswordChanged(user, { changedBy = 'self' } = {}) {
+    if (!user.email) return { sent: false, reason: 'no-recipient-address' };
     const byAdmin = changedBy === 'admin';
-    return this.sendNotification(user, {
+    const [org, link] = await Promise.all([this.org(), byAdmin ? null : this.oneTimeLink(user, 'compromised')]);
+    return this.send(user.email, org, {
       subject: 'Your password was changed',
-      preheader: byAdmin ? 'An administrator reset your password.' : 'Your password was just changed.',
-      heading: 'Your password was changed',
-      intro: [byAdmin
-        ? 'An administrator has reset the password on your account.'
-        : 'The password on your account was just changed.'],
-      details: [
-        ['Username', user.username, { mono: true }],
-        ['Changed', formatDate(new Date())],
-        ['Changed by', byAdmin ? 'An administrator' : 'You'],
-        ...(byAdmin && user.mustChangePassword ? [['Next sign-in', 'You\'ll be asked to choose a new password']] : []),
-      ],
-      notice: byAdmin
-        ? 'Your administrator will give you the new password. Any apps you were signed in to have been signed out.'
-        : 'If you didn\'t make this change, contact your administrator immediately — someone else may have access to your account.',
-      noticeTone: byAdmin ? 'info' : 'warning',
-      button: 'Sign in',
-      footerReason: 'You\'re receiving this security notice because your account\'s password changed.',
-    });
-  }
-
-  async sendPasswordExpired(user) {
-    return this.sendNotification(user, {
-      subject: 'Your password has expired',
-      preheader: 'Choose a new password the next time you sign in.',
-      heading: 'Your password has expired',
-      intro: ['Your password has reached its expiry date.'],
-      details: [
-        ['Username', user.username, { mono: true }],
-        ...(user.passwordExpiresAt ? [['Expired', formatDate(user.passwordExpiresAt)]] : []),
-      ],
-      stepsTitle: 'What to do',
-      steps: [
-        'Sign in with your current password.',
-        'You\'ll be asked to choose a new one before you can continue.',
-      ],
-      button: 'Sign in and update it',
-      footerReason: 'You\'re receiving this because your account\'s password expired.',
-    });
-  }
-
-  async sendPasswordExpirySoon(user, daysLeft) {
-    const when = daysLeft <= 0 ? 'today' : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
-    return this.sendNotification(user, {
-      subject: `Your password expires ${when}`,
-      preheader: `Change it before it expires to avoid interruption.`,
-      heading: `Your password expires ${when}`,
-      intro: ['Change your password before it expires to avoid being interrupted at sign-in.'],
-      details: [
-        ['Username', user.username, { mono: true }],
-        ...(user.passwordExpiresAt ? [['Expires', formatDate(user.passwordExpiresAt)]] : []),
-        ['Time left', daysLeft <= 0 ? 'Less than a day' : `${daysLeft} day${daysLeft === 1 ? '' : 's'}`],
-      ],
-      stepsTitle: 'How to change it',
-      steps: ['Sign in and open My Account.', 'Choose Change password and enter a new one.'],
-      button: 'Change password',
-      footerReason: 'You\'re receiving this reminder because your account\'s password has an expiry date.',
-    });
-  }
-
-  async sendUnknownLogon(user, { ip, appName }) {
-    return this.sendNotification(user, {
-      subject: 'New sign-in to your account',
-      preheader: `Signed in from ${ip}${appName ? ` to ${appName}` : ''}.`,
-      heading: 'New sign-in from an unfamiliar address',
-      intro: ['Your account just signed in from an address it hasn\'t used before.'],
-      details: [
-        ['Username', user.username, { mono: true }],
-        ['When', formatDate(new Date())],
-        ['IP address', ip, { mono: true }],
-        ...(appName ? [['Signed in to', appName]] : []),
-      ],
-      notice: 'If this was you — say, on a new device or network — you don\'t need to do anything. If it wasn\'t, sign in, change your password right away and use Sign out everywhere in My Account, then tell your administrator.',
-      noticeTone: 'warning',
-      button: 'Review my account',
-      footerReason: 'You\'re receiving this security notice because of a sign-in to your account.',
+      heading: byAdmin
+        ? `Hello ${displayName(user)}, you are receiving this email because an administrator has reset the password for your account.`
+        : `Hello ${displayName(user)}, you are receiving this email because the password for your account was just changed.`,
+      paragraphs: byAdmin
+        ? [`Your administrator will give you the new password.${user.mustChangePassword ? ' You will be prompted to change it at login.' : ''}`]
+        : [],
+      button: link ? { text: 'Wasn\'t you? Sign this user out and change your password.', url: link, danger: true } : null,
+      after: !byAdmin && !link ? [{ text: 'If this wasn\'t you, contact your administrator right away.' }] : [],
+      footer: 'You are receiving this security notice because your account\'s password changed.',
     });
   }
 }
 
 /* ---------------- rendering ---------------- */
 
-const COLORS = {
-  page: '#f2f4f7', card: '#ffffff', text: '#1f2933', dim: '#52606d', faint: '#7b8794',
-  border: '#e4e7eb', accent: '#0e8fa3', detailBg: '#f7f9fb',
-  warnBg: '#fff7e6', warnBorder: '#f0b429', infoBg: '#eaf6f8', infoBorder: '#0e8fa3',
+const C = {
+  page: '#f2f4f7', card: '#ffffff', text: '#1f2933', dim: '#52606d', faint: '#7b8794', border: '#e4e7eb',
+  button: '#2676fd', danger: '#c62828', warnBg: '#fff4e5', warnText: '#8a4b00',
 };
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
 
-function renderEmail({ subject, preheader, heading, intro = [], details = [], stepsTitle, steps = [], button, notice, noticeTone = 'info', footerReason, brand, signInUrl, recipient }) {
-  const c = COLORS;
-  const name = (recipient.fullName || '').trim().split(/\s+/)[0] || recipient.username;
+/**
+ * heading (h1), paragraphs, sectionTitle (h2) + rows [[label, value, {mono, warn}]],
+ * after (paragraphs after the section; {text, link?}), button {text, url, danger},
+ * footer (h6; the support-contact sentence is appended automatically).
+ */
+function renderEmail({ subject, heading, paragraphs = [], sectionTitle, rows = [], after = [], button, footer, org }) {
+  const contact = org.supportEmail
+    ? `Please contact ${org.supportEmail} or reply to this email.`
+    : 'Please contact your administrator.';
+  const footerText = [footer, contact].filter(Boolean).join(' ');
+  const p = (inner) => `<p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:${C.text};">${inner}</p>`;
 
-  const detailRows = details.map(([label, value, opt = {}]) => `
-    <tr>
-      <td style="padding:8px 0;color:${c.dim};font-size:13px;width:150px;vertical-align:top;">${escapeHtml(label)}</td>
-      <td style="padding:8px 0;color:${c.text};font-size:14px;vertical-align:top;${opt.mono ? `font-family:${MONO};` : ''}${opt.strong ? 'font-weight:700;font-size:16px;letter-spacing:.5px;' : ''}">${escapeHtml(value)}</td>
-    </tr>`).join('');
-
-  const tone = noticeTone === 'warning' ? [c.warnBg, c.warnBorder] : [c.infoBg, c.infoBorder];
+  const rowsHtml = rows.map(([label, value, opt = {}]) => opt.warn
+    ? `<tr><td colspan="2" style="padding:10px 12px;background:${C.warnBg};color:${C.warnText};font-size:14px;line-height:1.5;border-radius:4px;">&#9888;&#65039; ${esc(value)}</td></tr>`
+    : `<tr>
+        <td style="padding:6px 16px 6px 0;color:${C.dim};font-size:14px;white-space:nowrap;vertical-align:top;">${esc(label)}:</td>
+        <td style="padding:6px 0;color:${C.text};font-size:15px;vertical-align:top;${opt.mono ? `font-family:${MONO};` : ''}">${esc(value)}</td>
+      </tr>`).join('');
 
   const html = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(subject)}</title></head>
-<body style="margin:0;padding:0;background:${c.page};">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(preheader || '')}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${c.page};">
-<tr><td align="center" style="padding:32px 16px;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;font-family:${FONT};">
-    <tr><td style="padding:0 4px 16px;font-size:18px;font-weight:700;color:${c.text};">
-      ${brand.logoUrl ? `<img src="${escapeHtml(brand.logoUrl)}" alt="" height="28" style="height:28px;width:auto;vertical-align:middle;margin-right:8px;border:0;">` : ''}<span style="vertical-align:middle;">${escapeHtml(brand.siteName)}</span>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:0;background:${C.page};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.page};">
+<tr><td align="center" style="padding:24px 12px;">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:${C.card};border:1px solid ${C.border};font-family:${FONT};">
+    <tr><td style="padding:0;"><img src="cid:${BANNER_CID}" width="600" alt="${esc(org.orgName || org.siteName)}" style="display:block;width:100%;max-width:600px;height:auto;border:0;"></td></tr>
+    <tr><td style="padding:28px 32px 8px;">
+      <h1 style="margin:0 0 18px;font-size:22px;line-height:1.35;font-weight:700;color:${C.text};">${esc(heading)}</h1>
+      ${paragraphs.map((t) => p(esc(t))).join('')}
+      ${rows.length ? `${sectionTitle ? `<h2 style="margin:22px 0 8px;font-size:17px;font-weight:700;color:${C.text};">${esc(sectionTitle)}</h2>` : ''}
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">${rowsHtml}</table>` : ''}
+      ${after.map((a) => p(`${esc(a.text)}${a.link ? `<a href="${esc(a.link)}" style="color:${C.button};">${esc(a.link)}</a>` : ''}`)).join('')}
+      ${button ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 18px;"><tr>
+        <td style="background:${button.danger ? C.danger : C.button};border-radius:6px;">
+          <a href="${esc(button.url)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:600;line-height:1.3;color:#ffffff;text-decoration:none;">${esc(button.text)}</a>
+        </td></tr></table>` : ''}
     </td></tr>
-    <tr><td style="background:${c.card};border:1px solid ${c.border};border-top:4px solid ${c.accent};border-radius:8px;padding:28px 28px 24px;">
-      <h1 style="margin:0 0 16px;font-size:21px;line-height:1.3;color:${c.text};">${escapeHtml(heading)}</h1>
-      <p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:${c.text};">Hi ${escapeHtml(name)},</p>
-      ${intro.map((p) => `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:${c.text};">${escapeHtml(p)}</p>`).join('')}
-      ${details.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;background:${c.detailBg};border:1px solid ${c.border};border-radius:6px;"><tr><td style="padding:8px 16px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${detailRows}</table>
-      </td></tr></table>` : ''}
-      ${steps.length ? `${stepsTitle ? `<p style="margin:20px 0 8px;font-size:14px;font-weight:700;color:${c.text};">${escapeHtml(stepsTitle)}</p>` : ''}
-        <ol style="margin:0 0 12px;padding-left:20px;font-size:14px;line-height:1.6;color:${c.text};">${steps.map((s) => `<li style="margin:0 0 4px;">${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
-      ${button && signInUrl ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0 8px;"><tr><td style="background:${c.accent};border-radius:6px;">
-        <a href="${escapeHtml(signInUrl)}" style="display:inline-block;padding:11px 22px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">${escapeHtml(button)}</a>
-      </td></tr></table>
-      <p style="margin:0 0 4px;font-size:12px;color:${c.faint};">Or open <a href="${escapeHtml(signInUrl)}" style="color:${c.accent};">${escapeHtml(signInUrl)}</a></p>` : ''}
-      ${notice ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 0;"><tr>
-        <td style="background:${tone[0]};border-left:4px solid ${tone[1]};border-radius:4px;padding:12px 14px;font-size:13px;line-height:1.5;color:${c.text};">${escapeHtml(notice)}</td>
-      </tr></table>` : ''}
-    </td></tr>
-    <tr><td style="padding:16px 8px 0;font-size:12px;line-height:1.5;color:${c.faint};">
-      ${footerReason ? `${escapeHtml(footerReason)}<br>` : ''}This is an automated message from ${escapeHtml(brand.siteName)} — replies aren't monitored.
+    <tr><td style="padding:14px 32px 24px;border-top:1px solid ${C.border};">
+      <h6 style="margin:0;font-size:12px;line-height:1.5;font-weight:400;color:${C.faint};">${esc(footerText)}</h6>
     </td></tr>
   </table>
 </td></tr>
 </table>
 </body></html>`;
 
-  const width = Math.max(0, ...details.map(([label]) => label.length)) + 2;
+  const width = Math.max(0, ...rows.filter((r) => !(r[2] || {}).warn).map(([l]) => l.length)) + 1;
   const text = [
-    brand.siteName,
-    '',
     heading,
-    '='.repeat(Math.min(heading.length, 60)),
     '',
-    `Hi ${name},`,
-    '',
-    ...intro.flatMap((p) => [p, '']),
-    ...(details.length ? [...details.map(([label, value]) => `  ${`${label}:`.padEnd(width)} ${value}`), ''] : []),
-    ...(steps.length ? [...(stepsTitle ? [stepsTitle] : []), ...steps.map((s, i) => `  ${i + 1}. ${s}`), ''] : []),
-    ...(button && signInUrl ? [`${button}: ${signInUrl}`, ''] : []),
-    ...(notice ? [`NOTE: ${notice}`, ''] : []),
+    ...paragraphs.flatMap((t) => [t, '']),
+    ...(rows.length ? [
+      ...(sectionTitle ? [sectionTitle, '-'.repeat(sectionTitle.length)] : []),
+      ...rows.map(([label, value, opt = {}]) => (opt.warn ? `WARNING: ${value}` : `${`${label}:`.padEnd(width + 1)} ${value}`)),
+      '',
+    ] : []),
+    ...after.flatMap((a) => [`${a.text}${a.link || ''}`, '']),
+    ...(button ? [`${button.text}`, button.url, ''] : []),
     '--',
-    ...(footerReason ? [footerReason] : []),
-    `This is an automated message from ${brand.siteName}; replies aren't monitored.`,
+    footerText,
   ].join('\n');
 
   return { subject, html, text };
 }
 
-/** "7 Nov 2026, 14:03 UTC" — explicit about the time zone, since the server's and the reader's can differ. */
+function displayName(user) {
+  return (user.fullName || '').trim() || user.username;
+}
+
+/** "12 November 2026, 09:30 UTC" — explicit about the time zone, since the server's and the reader's can differ. */
 function formatDate(value) {
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
-  return `${new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC',
-  }).format(d)} UTC`;
+  const date = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(d);
+  const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(d);
+  return `${date}, ${time} UTC`;
 }
 
-function escapeHtml(s) {
+function esc(s) {
   return String(s ?? '').replace(/[<>&"']/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
-module.exports = { Mailer, renderEmail, formatDate, escapeHtml };
+module.exports = { Mailer, renderEmail, formatDate, escapeHtml: esc };

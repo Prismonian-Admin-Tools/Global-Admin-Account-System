@@ -73,6 +73,34 @@ activity:
 failedLogins:
   file: "./data/failed-logins.yml"
 
+# Emailed one-time links ("Reset password" in password-expiry emails,
+# "Wasn't you?" in new-sign-in and password-changed emails). Each works
+# once, and any password change cancels the account's outstanding links.
+# Links point at server.publicUrl, so that must be Passport's real address.
+resetLinks:
+  ttlHours: 72
+
+# Where an unfamiliar sign-in came from (city, ISP, VPN warning) for the
+# "new sign-in" email. The IP address always comes from the request.
+ipLookup:
+  # Use visitor-location headers added by a proxy/CDN in front of Passport
+  # (Cloudflare: Network → "Add visitor location headers"). ONLY turn this
+  # on if such a proxy really is in front — otherwise anyone can send these
+  # headers and pick their own "city".
+  trustLocationHeaders: false
+  locationHeaders:
+    city: "cf-ipcity"
+    region: "cf-region"
+    country: "cf-ipcountry"
+  # Everything the request doesn't carry (always ISP + VPN detection) comes
+  # from proxycheck.io. This sends each unfamiliar sign-in's IP address to
+  # proxycheck.io. Without a key it allows ~100 lookups/day; a free account
+  # key raises that to 1,000. PROXYCHECK_API_KEY overrides apiKey.
+  proxycheck:
+    enabled: true
+    apiKey: ""
+    timeoutSeconds: 4
+
 # Rally account sync (WSAPI v2.0). When enabled, every Passport account
 # created from now on gets a matching Rally user, and disabling,
 # re-enabling or deleting the Passport account does the same to that

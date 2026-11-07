@@ -26,6 +26,7 @@ const { Mailer } = require('../src/utils/mailer');
 const { warnSecretOutput } = require('./lib/secretWarning');
 const fs = require('fs');
 const { setUpRallySync, buildRallyImporter } = require('../src/integrations/rally');
+const { ResetLinkStore } = require('../src/models/resetLinkStore');
 const { rowsToCsv, rowsToJson, objectIdsFromCsv } = require('../src/integrations/rally/rallyImport');
 
 function parseArgs(argv) {
@@ -110,6 +111,8 @@ ACTIVITY
 BRANDING
   branding show
   branding set-name <name>
+  branding set-org-name [name]            (used in emails; omit to clear)
+  branding set-support-email [address]    (emails' contact + reply-to; omit to clear)
   branding remove-logo
 
 PASSWORD POLICY
@@ -164,7 +167,8 @@ async function main() {
   const rankStore = new RankStore(pool);
   const emailSettingsStore = new EmailSettingsStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
   const siteSettingsStore = new SiteSettingsStore(pool);
-  const mailer = new Mailer(emailSettingsStore, { siteSettingsStore, publicUrl: config.server.publicUrl });
+  const resetLinkStore = new ResetLinkStore(pool, { ttlHours: (config.resetLinks || {}).ttlHours });
+  const mailer = new Mailer(emailSettingsStore, { siteSettingsStore, publicUrl: config.server.publicUrl, resetLinkStore, ipLookup: (config.ipLookup || {}) });
   const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
   const sessionStore = new SessionStore(pool, config.session);
@@ -435,7 +439,13 @@ async function main() {
   if (cmd === 'branding') {
     const { positional } = parseArgs(rest);
     if (sub === 'show') {
-      console.log(JSON.stringify(await siteSettingsStore.get(), null, 2));
+      console.log(JSON.stringify(await siteSettingsStore.getFull(), null, 2));
+    } else if (sub === 'set-org-name') {
+      await siteSettingsStore.update({ orgName: positional[0] || '' });
+      console.log(`Organization name ${positional[0] ? `set to "${positional[0]}"` : 'cleared'}.`);
+    } else if (sub === 'set-support-email') {
+      await siteSettingsStore.update({ supportEmail: positional[0] || '' });
+      console.log(`Support email ${positional[0] ? `set to ${positional[0]}` : 'cleared'}.`);
     } else if (sub === 'set-name') {
       if (!positional[0]) { console.error('Usage: branding set-name <name>'); process.exit(1); }
       const settings = await siteSettingsStore.update({ siteName: positional[0] });

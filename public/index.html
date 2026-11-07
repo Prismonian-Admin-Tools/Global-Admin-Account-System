@@ -476,6 +476,7 @@ async function boot() {
     state.branding = await api('/branding');
   } catch (e) { /* fall back to default Passport branding */ }
   document.title = state.branding.siteName || 'Passport';
+  if (location.pathname === '/reset-password') return renderResetLink(location.hash.slice(1));
   try {
     const { profile, requirePasswordChange, onboardingRequired } = await api('/session');
     state.profile = profile;
@@ -595,6 +596,91 @@ function renderForceChange() {
     el('button', { class: 'btn-primary btn-block', text: 'Update password', onclick: submit }),
   ]);
   app.appendChild(el('div', { class: 'center-screen' }, [form]));
+}
+
+/* ---------------- emailed one-time links (/reset-password#<token>) ---------------- */
+/**
+ * "Reset password" and "Wasn't you? Sign this user out and change your
+ * password" from notification emails. The token lives in the URL fragment,
+ * which never reaches the server; every action is an explicit POST from
+ * here (routes/resetLinks.js), so an email scanner opening the link
+ * changes nothing.
+ */
+async function renderResetLink(token) {
+  const app = document.getElementById('app');
+  const show = (children) => {
+    app.innerHTML = '';
+    app.appendChild(el('div', { class: 'center-screen' }, [el('div', { class: 'card' }, [brandmark(), ...children])]));
+  };
+  const toSignIn = () => { window.location.href = '/'; };
+  // Opening a different link in this same tab only changes the #fragment,
+  // which doesn't reload the page — start over for the new link.
+  window.addEventListener('hashchange', () => window.location.reload(), { once: true });
+
+  let info;
+  try {
+    info = await api('/reset-link/inspect', { method: 'POST', body: { token } });
+  } catch (e) {
+    return show([
+      el('div', { class: 'sub', text: 'Link not valid' }),
+      el('p', { class: 'hint', text: e.message }),
+      el('button', { class: 'btn-primary btn-block', text: 'Go to sign in', onclick: toSignIn }),
+    ]);
+  }
+  const who = info.fullName ? `${info.fullName} (${info.username})` : info.username;
+
+  function passwordStep(note) {
+    const errEl = el('div', { class: 'err' });
+    if (info.blocked) {
+      return show([
+        el('div', { class: 'sub', text: note || 'Change password' }),
+        el('p', { class: 'hint', text: info.blocked }),
+        el('button', { class: 'btn-ghost btn-block', text: 'Go to sign in', onclick: toSignIn }),
+      ]);
+    }
+    const pw1 = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'At least 8 characters' });
+    const pw2 = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Repeat it' });
+    async function submit() {
+      errEl.textContent = '';
+      try {
+        await api('/reset-link/complete', { method: 'POST', body: { token, newPassword: pw1.value, confirmPassword: pw2.value } });
+        show([
+          el('div', { class: 'sub', text: 'Password updated' }),
+          el('p', { class: 'hint', text: 'Your new password is set and every session was signed out. Sign in with your new password.' }),
+          el('button', { class: 'btn-primary btn-block', text: 'Sign in', onclick: toSignIn }),
+        ]);
+      } catch (e) { errEl.textContent = e.message; }
+    }
+    pw2.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    show([
+      el('div', { class: 'sub', text: note || `Choose a new password for ${who}.` }),
+      ...(note ? [el('p', { class: 'hint', text: `Now choose a new password for ${who}.` })] : []),
+      el('label', { text: 'New password' }), pw1,
+      el('label', { text: 'Confirm new password' }), pw2,
+      ...(info.rules.length ? [el('ul', { class: 'hint', style: 'margin:10px 0 0;padding-left:18px' }, info.rules.map((r) => el('li', { text: r })))] : []),
+      errEl,
+      el('button', { class: 'btn-primary btn-block', text: 'Set new password', onclick: submit }),
+    ]);
+  }
+
+  if (info.purpose === 'compromised' && !info.signedOut) {
+    const errEl = el('div', { class: 'err' });
+    async function signOut() {
+      errEl.textContent = '';
+      try {
+        await api('/reset-link/sign-out', { method: 'POST', body: { token } });
+        info.signedOut = true;
+        passwordStep('Every session was signed out.');
+      } catch (e) { errEl.textContent = e.message; }
+    }
+    return show([
+      el('div', { class: 'sub', text: `Secure the account ${who}` }),
+      el('p', { class: 'hint', text: 'This signs out every device and app using this account, including whoever signed in, then lets you choose a new password.' }),
+      errEl,
+      el('button', { class: 'btn-primary btn-block', text: 'Sign out everywhere', onclick: signOut }),
+    ]);
+  }
+  passwordStep(info.purpose === 'compromised' ? 'Every session was signed out.' : null);
 }
 
 /* ---------------- new-hire onboarding wizard ---------------- */
@@ -2225,8 +2311,17 @@ async function renderEmailSettings(content) {
 
 /* ---------------- settings tab (manageBranding capability, site branding) ---------------- */
 async function renderSettings(content) {
-  const branding = await api('/branding');
+  const [branding, org] = await Promise.all([api('/branding'), api('/branding/organization')]);
   content.innerHTML = '';
+
+  const orgName = el('input', { type: 'text', value: org.orgName, maxlength: '100', placeholder: 'e.g. Prismonian' });
+  const supportEmail = el('input', { type: 'email', value: org.supportEmail, maxlength: '254', placeholder: 'e.g. support@prismonian.com' });
+  async function saveOrg() {
+    try {
+      await api('/branding/organization', { method: 'PUT', body: { orgName: orgName.value, supportEmail: supportEmail.value } });
+      toast('Organization details saved', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  }
 
   const siteName = el('input', { type: 'text', value: branding.siteName, maxlength: '60' });
   async function saveName() {
@@ -2274,6 +2369,16 @@ async function renderSettings(content) {
       el('h3', {}, [icon('account'), el('span', { text: 'Site name' })]),
       siteName,
       el('button', { class: 'btn-primary', text: 'Save', style: 'margin-top:14px', onclick: saveName }),
+    ]),
+
+    el('div', { class: 'panel' }, [
+      el('h3', {}, [icon('email'), el('span', { text: 'Organization' })]),
+      el('label', { text: 'Organization name' }),
+      orgName,
+      el('label', { text: 'Support email address' }),
+      supportEmail,
+      el('div', { class: 'hint', text: 'Used in account emails ("<organization> has created a Passport account in your name") and as their reply-to address, so replies reach support. Leave blank to leave them out.' }),
+      el('button', { class: 'btn-primary', text: 'Save', style: 'margin-top:14px', onclick: saveOrg }),
     ]),
 
     el('div', { class: 'panel' }, [

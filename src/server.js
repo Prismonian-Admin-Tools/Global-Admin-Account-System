@@ -20,6 +20,7 @@ const { OidcKeyStore } = require('./models/oidcKeyStore');
 const { OidcCodeStore } = require('./models/oidcCodeStore');
 const { MfaStore } = require('./models/mfaStore');
 const { MfaChallengeStore } = require('./models/mfaChallengeStore');
+const { ResetLinkStore } = require('./models/resetLinkStore');
 const { Mailer } = require('./utils/mailer');
 const { runPasswordExpirySweep } = require('./jobs/passwordExpirySweep');
 const { setUpRallySync } = require('./integrations/rally');
@@ -41,6 +42,7 @@ const passwordPolicyRoutes = require('./routes/passwordPolicy');
 const emailRoutes = require('./routes/email');
 const oidcRoutes = require('./routes/oidc');
 const mfaRoutes = require('./routes/mfa');
+const resetLinkRoutes = require('./routes/resetLinks');
 
 const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const OIDC_CODE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
@@ -56,7 +58,8 @@ async function main() {
   const rankStore = new RankStore(pool);
   const emailSettingsStore = new EmailSettingsStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
   const siteSettingsStore = new SiteSettingsStore(pool);
-  const mailer = new Mailer(emailSettingsStore, { siteSettingsStore, publicUrl: config.server.publicUrl });
+  const resetLinkStore = new ResetLinkStore(pool, { ttlHours: (config.resetLinks || {}).ttlHours });
+  const mailer = new Mailer(emailSettingsStore, { siteSettingsStore, publicUrl: config.server.publicUrl, resetLinkStore, ipLookup: (config.ipLookup || {}) });
   const userStore = new UserStore(pool, rankStore, mailer);
   const appStore = new AppStore(pool);
   const sessionStore = new SessionStore(pool, config.session);
@@ -112,6 +115,8 @@ async function main() {
   // Expired MFA challenge tickets are already unusable (takeAttempt checks
   // expires_at) — same as the OIDC code cleanup above, this just keeps the
   // table from growing forever.
+  setInterval(() => resetLinkStore.deleteExpired().catch((err) => console.error('Reset link cleanup failed:', err.message)), MFA_CHALLENGE_CLEANUP_INTERVAL_MS);
+
   setInterval(() => mfaChallengeStore.deleteExpired().catch((err) => console.error('MFA challenge cleanup failed:', err.message)), MFA_CHALLENGE_CLEANUP_INTERVAL_MS);
 
   const app = express();
@@ -171,6 +176,10 @@ async function main() {
    * routes/branding.js.
    * ========================================================= */
   app.use('/api', brandingRoutes({ config, rankStore, userStore, siteSettingsStore, activityLog }));
+  // Emailed one-time reset / "Wasn't you?" links: reachable signed out,
+  // like login. The page itself is the SPA (index.html, renderResetLink).
+  app.use('/api', resetLinkRoutes({ resetLinkStore, userStore, sessionStore, passwordPolicyStore, activityLog }));
+  app.get('/reset-password', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
   app.use('/api', sessionRoutes({ userStore, rankStore, failedLoginStore, activityLog, knownLoginStore, mailer, mfaStore, mfaChallengeStore }));
   app.use('/api', requireAuth);
   app.use('/api', requireGoodStanding(userStore));

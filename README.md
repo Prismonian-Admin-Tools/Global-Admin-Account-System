@@ -465,6 +465,37 @@ password change never fails because notification mail couldn't go out.
 Add an email address to an account from the Users tab, `PATCH /api/
 users/:uid`, or `users set-email <username> <email>` in the CLI.
 
+Every email carries the fixed banner `public/brand/email-banner.png`
+(attached inline; replace the file to change it), a heading, a short
+details section and a footer. Set **Organization name** and **Support
+email address** under Settings (or `branding set-org-name` /
+`branding set-support-email`): the organization appears in the
+account-created email, and the support address is named in every footer
+and used as the emails' Reply-To. `server.publicUrl` must be Passport's
+real address — sign-in and reset links point at it.
+
+**One-time links.** Password-expiry and change-required emails carry a
+**Reset password** button; new-sign-in and password-changed emails carry
+**Wasn't you? Sign this user out and change your password.** Each opens
+`/reset-password#<token>`: single use, valid for `resetLinks.ttlHours`
+(72), cancelled by any password change on the account, and only a hash of
+the token is stored. The token is in the URL fragment, which browsers never
+send to the server, and nothing happens until the person clicks a button on
+the page, so email link scanners can't trigger anything. "Wasn't you?"
+first signs out every app token *and* website session, then lets the user
+set a new password without the old one; the password policy still applies.
+
+**Unfamiliar sign-ins** show the IP address (from the request), city and
+ISP, and warn when the address belongs to a VPN or proxy. City comes from
+visitor-location headers when `ipLookup.trustLocationHeaders` is on
+(e.g. Cloudflare's `cf-ipcity`; only enable it behind such a proxy);
+anything missing — always ISP and VPN detection — comes from
+proxycheck.io, which receives the sign-in's IP address. Set
+`ipLookup.proxycheck.apiKey` (or `PROXYCHECK_API_KEY`) for 1,000
+lookups/day; private addresses are never looked up, results are cached for
+a day, and the email is sent in the background so a slow lookup never
+delays the sign-in.
+
 ## Admin-panel features (GAM's own frontend)
 
 - **Dashboard** — quick stats and a recent-activity feed, each tailored

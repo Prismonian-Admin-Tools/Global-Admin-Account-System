@@ -120,6 +120,20 @@ class SessionStore {
     if (!isUuid(uid)) return;
     await this.pool.query('DELETE FROM sessions WHERE uid = $1', [uid]);
   }
+
+  /**
+   * Signs the account out of Passport's OWN website too (cookie sessions in
+   * frontend_sessions, migration 008 — a separate mechanism from the app
+   * tokens above). Used by the emailed "Wasn't you?" link, where leaving an
+   * intruder's website session alive would defeat the point. Returns how
+   * many app tokens + website sessions were ended.
+   */
+  async revokeEverywhere(uid) {
+    if (!isUuid(uid)) return 0;
+    const apps = await this.pool.query('DELETE FROM sessions WHERE uid = $1', [uid]);
+    const web = await this.pool.query(`DELETE FROM frontend_sessions WHERE sess->'user'->>'uid' = $1`, [uid]);
+    return apps.rowCount + web.rowCount;
+  }
 }
 
 module.exports = { SessionStore };

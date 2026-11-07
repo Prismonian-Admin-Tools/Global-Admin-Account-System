@@ -45,7 +45,10 @@ module.exports = function sessionRoutes({ userStore, rankStore, failedLoginStore
 
     const isUnknownLogonPoint = await knownLoginStore.recordAndCheckUnknown(user.uid, ip);
     if (isUnknownLogonPoint) {
-      await mailer.sendUnknownLogon(toProfile(user), { ip, appName: 'GAM' });
+      // Not awaited: the email looks the IP up (city/ISP/VPN, up to a few
+      // seconds) and that must never hold up the sign-in itself.
+      mailer.sendUnknownLogon(toProfile(user), { ip, appName: 'GAM', headers: req.headers })
+        .catch((err) => console.error('Unfamiliar sign-in email failed:', err.message));
       await activityLog.add('auth', `${user.username} signed in to GAM from a new address`, user.uid, user.username);
     }
 

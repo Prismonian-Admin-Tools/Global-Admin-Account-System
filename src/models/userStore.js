@@ -222,7 +222,10 @@ class UserStore {
     // Includes the password so the new user can actually sign in — it's
     // temporary (forced change at first sign-in) for every rank except a
     // Provider account, see skipOnboarding above.
-    if (this.mailer) await this.mailer.sendAccountCreated(profile, { password });
+    if (this.mailer) {
+      const rank = await this.rankStore.findByName(profile.role);
+      await this.mailer.sendAccountCreated(profile, { password, rankLabel: rank ? rank.label : profile.role });
+    }
     if (!skipAccountSync) await this.notifyAccountSync('onUserCreated', profile);
     return profile;
   }
@@ -288,6 +291,9 @@ class UserStore {
       [passwords.hash(newPassword), simhash64(newPassword), mustChange, uid]
     );
     await this.pool.query('DELETE FROM password_expiry_notices WHERE uid = $1', [uid]);
+    // Any password change cancels outstanding emailed reset / "wasn't you"
+    // links (see resetLinkStore.js) — they exist to replace THIS password.
+    await this.pool.query('DELETE FROM password_reset_links WHERE uid = $1 AND used_at IS NULL', [uid]);
 
     const profile = await this.getProfile(uid);
     if (this.mailer) await this.mailer.sendPasswordChanged(profile, { changedBy });

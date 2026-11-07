@@ -53,6 +53,27 @@ module.exports = function brandingRoutes({ config, rankStore, userStore, siteSet
     }
   });
 
+  // Organization name + support email (used in notification emails). Not
+  // part of the public GET /branding above: the login screen doesn't need
+  // them, so they're only readable by someone who can change them.
+  router.get('/branding/organization', requireAuth, requireBrandingCapability, async (req, res) => {
+    const { orgName, supportEmail } = await siteSettingsStore.getFull();
+    res.json({ orgName, supportEmail });
+  });
+
+  router.put('/branding/organization', requireAuth, requireBrandingCapability, express.json(), async (req, res) => {
+    try {
+      const { orgName, supportEmail } = req.body || {};
+      await siteSettingsStore.update({ orgName, supportEmail });
+      const settings = await siteSettingsStore.getFull();
+      const actor = req.session.user.username;
+      await activityLog.add('branding', `${actor} set the organization name to "${settings.orgName || '(none)'}" and support email to "${settings.supportEmail || '(none)'}"`, req.session.user.uid, actor);
+      res.json({ ok: true, orgName: settings.orgName, supportEmail: settings.supportEmail });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   router.post('/branding/logo', requireAuth, requireBrandingCapability, upload.single('logo'), async (req, res) => {
     try {
       if (!req.file) throw new Error('No file uploaded');
