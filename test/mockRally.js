@@ -11,9 +11,15 @@ function startMockRally(port) {
       state.requests.push({ method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), body: body ? JSON.parse(body) : null, key: req.headers.zsessionid });
       if (state.delayMs) await new Promise((r) => setTimeout(r, state.delayMs));
       const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
-      if (req.headers.zsessionid !== 'test-key') return send(401, {});
+      // 'test-key' belongs to a Subscription Administrator, 'plain-key' to an ordinary user.
+      const keys = { 'test-key': true, 'plain-key': false };
+      if (!(req.headers.zsessionid in keys)) return send(401, {});
       const base = '/slm/webservice/v2.0';
       const p = url.pathname.slice(base.length);
+      if (req.method === 'GET' && p === '/user:current') {
+        const admin = keys[req.headers.zsessionid];
+        return send(200, { User: { ObjectID: 1, UserName: admin ? 'rally-admin@corp.com' : 'someone@corp.com', SubscriptionAdmin: admin, SubscriptionPermission: admin ? 'Subscription Admin' : 'Workspace User', Errors: [], Warnings: [] } });
+      }
       if (state.fail) {
         const env = req.method === 'GET' ? 'QueryResult' : (p.endsWith('/create') ? 'CreateResult' : 'OperationResult');
         return send(200, { [env]: { Errors: ['Simulated Rally failure'], Warnings: [] } });

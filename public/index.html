@@ -1738,7 +1738,7 @@ const AUTH_METHODS = ['gam', 'oidc', 'oauth', 'saml', 'sssd', 'kerberos'];
 const DARK_AUTH_METHODS = ['oauth', 'saml', 'sssd', 'kerberos'];
 
 async function renderApps(content) {
-  const apps = await api('/apps');
+  const [apps, integ] = await Promise.all([api('/apps'), api('/integrations')]);
   content.innerHTML = '';
   const table = tableWrap(el('table', {}, [
     el('thead', {}, [el('tr', {}, tableHeaders(['Name', 'Slug', 'Auth method', 'Status', '']))]),
@@ -1752,7 +1752,89 @@ async function renderApps(content) {
       el('button', { class: 'btn-primary', text: '+ Register app', onclick: openCreateAppModal }),
     ]),
     table,
+    restIntegrationsPanel(integ, () => renderApps(content)),
   ]));
+}
+
+/**
+ * "RESTful API": external services Passport calls with an API key (Rally's
+ * WSAPI to start). Pick a service, paste its key, Test / Save. The key is
+ * write-only — the server never sends it back, only its last 4 characters.
+ */
+function restIntegrationsPanel({ services, integrations, fallbacks }, refresh) {
+  const serviceLabel = (id) => (services.find((s) => s.id === id) || {}).label || id;
+  const service = el('select', {}, services.map((s) => el('option', { value: s.id, text: s.label })));
+  const apiKey = el('input', { type: 'password', autocomplete: 'off', placeholder: 'Paste the API key' });
+  const describe = el('div', { class: 'hint' });
+  const result = el('div', { class: 'hint', style: 'margin-top:10px' });
+  const showDescription = () => { describe.textContent = (services.find((s) => s.id === service.value) || {}).description || ''; };
+  service.addEventListener('change', showDescription);
+  showDescription();
+
+  const say = (text, kind) => {
+    result.textContent = text;
+    result.style.color = kind === 'err' ? 'var(--red)' : kind === 'warn' ? 'var(--yellow)' : 'var(--green)';
+  };
+  const report = (r) => say(r.warning ? `${r.warning} (Connected as ${r.account}.)` : `Connected as ${r.account}.`, r.warning ? 'warn' : 'ok');
+
+  async function testKey() {
+    say('Testing…', 'ok');
+    try { report(await api(`/integrations/${service.value}/test`, { method: 'POST', body: { apiKey: apiKey.value } })); } catch (e) { say(e.message, 'err'); }
+  }
+  async function save() {
+    if (!apiKey.value.trim()) { say('Enter an API key first.', 'err'); return; }
+    say('Checking the key with ' + serviceLabel(service.value) + '…', 'ok');
+    try {
+      const r = await api(`/integrations/${service.value}`, { method: 'PUT', body: { apiKey: apiKey.value } });
+      apiKey.value = '';
+      toast(`${serviceLabel(service.value)} connected`, 'ok');
+      refresh();
+      if (r.warning) setTimeout(() => toast(r.warning, 'err'), 300);
+    } catch (e) { say(e.message, 'err'); }
+  }
+  async function testSaved(id) {
+    try { const r = await api(`/integrations/${id}/test`, { method: 'POST', body: {} }); toast(r.warning || `${serviceLabel(id)}: connected as ${r.account}`, r.warning ? 'err' : 'ok'); } catch (e) { toast(e.message, 'err'); }
+  }
+  async function remove(id) {
+    if (!confirm(`Disconnect ${serviceLabel(id)}? Passport will stop syncing accounts to it.`)) return;
+    try { await api(`/integrations/${id}`, { method: 'DELETE' }); toast(`${serviceLabel(id)} disconnected`, 'ok'); refresh(); } catch (e) { toast(e.message, 'err'); }
+  }
+
+  const sourceNote = { env: 'the RALLY_API_KEY environment variable', config: 'config.yml (rally.apiKey)', 'config-missing-key': 'config.yml, but no key is set there' };
+  const rows = [
+    ...integrations.map((i) => el('tr', {}, [
+      el('td', { text: i.label }),
+      el('td', {}, [el('span', { class: 'badge', style: 'font-family:var(--mono)', text: '••••' + i.keyHint })]),
+      el('td', { text: `Saved here${i.updatedBy ? ` by ${i.updatedBy}` : ''}, ${new Date(i.updatedAt).toLocaleString()}` }),
+      el('td', { class: 'row-actions' }, [
+        el('button', { class: 'btn-ghost btn-sm', text: 'Test', onclick: () => testSaved(i.service) }),
+        el('button', { class: 'btn-danger btn-sm', text: 'Disconnect', onclick: () => remove(i.service) }),
+      ]),
+    ])),
+    ...fallbacks.map((f) => el('tr', {}, [
+      el('td', { text: serviceLabel(f.service) }),
+      el('td', { text: '—' }),
+      el('td', { text: `From ${sourceNote[f.source] || f.source}. Save a key above to manage it here instead.` }),
+      el('td', { class: 'row-actions' }, f.source === 'config-missing-key' ? [] : [el('button', { class: 'btn-ghost btn-sm', text: 'Test', onclick: () => testSaved(f.service) })]),
+    ])),
+  ];
+
+  return el('div', { class: 'panel', style: 'margin-top:28px' }, [
+    el('h3', {}, [icon('key'), el('span', { text: 'RESTful API' })]),
+    el('div', { class: 'pagesub', style: 'margin:0 0 10px', text: 'Services Passport calls on your behalf with an API key — for example, to keep each user’s Rally account in step with their Passport account.' }),
+    el('label', { text: 'App' }), service,
+    describe,
+    el('label', { text: 'API key' }), apiKey,
+    el('div', { style: 'display:flex;gap:8px;margin-top:14px' }, [
+      el('button', { class: 'btn-ghost', text: 'Test connection', onclick: testKey }),
+      el('button', { class: 'btn-primary', text: 'Save', onclick: save }),
+    ]),
+    result,
+    rows.length ? tableWrap(el('table', { style: 'margin-top:18px' }, [
+      el('thead', {}, [el('tr', {}, tableHeaders(['Connected app', 'API key', 'Source', '']))]),
+      el('tbody', {}, rows),
+    ])) : el('div', { class: 'empty-note', style: 'margin-top:12px', text: 'No apps connected yet.' }),
+  ]);
 }
 
 function appRow(a) {

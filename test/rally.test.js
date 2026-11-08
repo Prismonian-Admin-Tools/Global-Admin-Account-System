@@ -22,7 +22,7 @@ const { startMockRally } = require('./mockRally');
   await pool.query('DELETE FROM rally_accounts');
   const userStore = new UserStore(pool, new RankStore(pool));
   const activityLog = new ActivityLog(pool);
-  const sync = setUpRallySync({ config, pool, userStore, activityLog });
+  const sync = await setUpRallySync({ config, pool, userStore, activityLog });
   const rallyUser = (row) => mock.state.users.get(Number(row.rally_object_id));
   let n = 0; const ok = (m) => console.log(`ok ${++n} - ${m}`);
 

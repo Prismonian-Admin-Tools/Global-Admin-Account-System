@@ -27,6 +27,7 @@ const { warnSecretOutput } = require('./lib/secretWarning');
 const fs = require('fs');
 const { setUpRallySync, buildRallyImporter } = require('../src/integrations/rally');
 const { ResetLinkStore } = require('../src/models/resetLinkStore');
+const { IntegrationStore } = require('../src/models/integrationStore');
 const { rowsToCsv, rowsToJson, objectIdsFromCsv } = require('../src/integrations/rally/rallyImport');
 
 function parseArgs(argv) {
@@ -175,7 +176,8 @@ async function main() {
   const failedLoginStore = new FailedLoginStore(pool, config.rateLimit.login);
   const activityLog = new ActivityLog(pool);
   const passwordPolicyStore = new PasswordPolicyStore(pool);
-  const rallySync = setUpRallySync({ config, pool, userStore, activityLog });
+  const integrationStore = new IntegrationStore(pool, { encryptionKey: config.server.encryptionKey });
+  const rallySync = await setUpRallySync({ config, pool, userStore, activityLog, integrationStore });
 
   async function requireUser(username) {
     const user = await userStore.findByUsername(username);
@@ -492,7 +494,7 @@ async function main() {
 
   if (cmd === 'rally') {
     const { positional } = parseArgs(rest);
-    if (!rallySync) { console.error('Rally sync is off — set rally.enabled: true (and an API key) in config.yml.'); process.exit(1); }
+    if (!rallySync) { console.error('Rally sync is off — add Rally\'s API key on the Apps tab (RESTful API), or set rally.enabled + rally.apiKey in config.yml.'); process.exit(1); }
     const describe = (r) => {
       if (r.in_sync) return r.desired_state === 'deleted' ? 'done (passport account deleted)' : 'in sync';
       if (r.last_error) return r.attempts ? `FAILED x${r.attempts}: ${r.last_error}` : r.last_error;

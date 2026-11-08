@@ -30,7 +30,7 @@ const { startMockRally } = require('./mockRally');
   if (!(await userStore.findByUsername('root'))) await userStore.create({ username: 'root', password: 'password123', role: 'systemAdministrator', skipAccountSync: true });
   await pool.query("DELETE FROM users WHERE uid IN (SELECT uid FROM usernames WHERE username <> 'root')");
   await pool.query('DELETE FROM rally_accounts');
-  const sync = setUpRallySync({ config, pool, userStore, activityLog: new ActivityLog(pool) });
+  const sync = await setUpRallySync({ config, pool, userStore, activityLog: new ActivityLog(pool) });
   const importer = buildRallyImporter({ config, rallySync: sync, userStore, rankStore });
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rally-import-'));
   let n = 0; const ok = (m) => console.log(`ok ${++n} - ${m}`);

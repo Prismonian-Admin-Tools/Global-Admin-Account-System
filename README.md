@@ -279,8 +279,19 @@ can't be redeemed twice even under a race.
 
 ## Rally account sync
 
-When `rally.enabled` is on in `config.yml`, Passport keeps a matching
-Rally user (via the Rally WebService API v2.0) for each account it creates:
+Connect Rally from the **Apps tab → RESTful API**: choose **Rally (WSAPI)**
+in the App dropdown, paste an API key belonging to a Rally Subscription
+Administrator, **Test connection**, then **Save**. Saving checks the key
+with Rally first, stores it encrypted (`app_integrations`, migration 016;
+only its last 4 characters are ever shown again) and turns the sync on
+immediately — no restart; **Disconnect** turns it off the same way. Needs
+the `manageApps` capability. A key in `config.yml` (`rally.enabled` +
+`rally.apiKey`, or `RALLY_API_KEY`) still works as a fallback; a key saved on
+the Apps tab takes precedence. Other Rally settings (base URL, delete
+behaviour, retries, defaults, import rank map) stay in `config.yml`.
+
+Once connected, Passport keeps a matching Rally user (via the Rally
+WebService API v2.0) for each account it creates:
 
 | Passport | Rally |
 |---|---|

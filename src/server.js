@@ -21,6 +21,7 @@ const { OidcCodeStore } = require('./models/oidcCodeStore');
 const { MfaStore } = require('./models/mfaStore');
 const { MfaChallengeStore } = require('./models/mfaChallengeStore');
 const { ResetLinkStore } = require('./models/resetLinkStore');
+const { IntegrationStore } = require('./models/integrationStore');
 const { Mailer } = require('./utils/mailer');
 const { runPasswordExpirySweep } = require('./jobs/passwordExpirySweep');
 const { setUpRallySync } = require('./integrations/rally');
@@ -43,6 +44,7 @@ const emailRoutes = require('./routes/email');
 const oidcRoutes = require('./routes/oidc');
 const mfaRoutes = require('./routes/mfa');
 const resetLinkRoutes = require('./routes/resetLinks');
+const integrationRoutes = require('./routes/integrations');
 
 const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const OIDC_CODE_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
@@ -72,18 +74,34 @@ async function main() {
   const mfaStore = new MfaStore(pool, { encryptionKey: config.server.encryptionKey, legacySessionSecret: config.server.sessionSecret });
   const mfaChallengeStore = new MfaChallengeStore(pool);
 
-  // Rally account sync (off unless config.rally.enabled) — mirrors
-  // create/disable/enable/delete of Passport accounts into Rally users.
-  // Each change is attempted immediately; anything that failed (Rally
-  // down, rejected request) is retried by the sweep below.
-  const rallySync = setUpRallySync({ config, pool, userStore, activityLog });
-  if (rallySync) {
-    const minutes = Number(config.rally.retryIntervalMinutes) || DEFAULT_RALLY_RETRY_INTERVAL_MINUTES;
-    const runRallySweep = () => rallySync.sweep().catch((err) => console.error('Rally sync sweep failed:', err.message));
-    runRallySweep();
-    setInterval(runRallySweep, minutes * 60 * 1000);
-    console.log(`Rally account sync enabled (${config.rally.baseUrl || 'https://rally1.rallydev.com'}).`);
+  // Rally account sync — mirrors create/disable/enable/delete of Passport
+  // accounts into Rally users. On whenever Rally has an API key: saved on the
+  // Apps tab ("RESTful API"), or from config.yml (see integrations/rally).
+  // Each change is attempted immediately; anything that failed (Rally down,
+  // rejected request) is retried by the sweep below. reloadIntegration() is
+  // called when a key is saved/removed on the Apps tab, so that takes effect
+  // without a restart.
+  const integrationStore = new IntegrationStore(pool, { encryptionKey: config.server.encryptionKey });
+  let rallySync = null;
+  async function reloadIntegration(service = 'rally') {
+    if (service !== 'rally') return;
+    try {
+      rallySync = await setUpRallySync({ config, pool, userStore, activityLog, integrationStore });
+    } catch (err) {
+      rallySync = null;
+      userStore.setAccountSync(null);
+      console.error('Rally account sync is off:', err.message);
+    }
+    console.log(rallySync
+      ? `Rally account sync enabled (${(config.rally || {}).baseUrl || 'https://rally1.rallydev.com'}, key from ${rallySync.keySource}).`
+      : 'Rally account sync is off (no API key).');
+    if (rallySync) rallySync.sweep().catch((err) => console.error('Rally sync sweep failed:', err.message));
   }
+  await reloadIntegration('rally');
+  const rallyRetryMinutes = Number((config.rally || {}).retryIntervalMinutes) || DEFAULT_RALLY_RETRY_INTERVAL_MINUTES;
+  setInterval(() => {
+    if (rallySync) rallySync.sweep().catch((err) => console.error('Rally sync sweep failed:', err.message));
+  }, rallyRetryMinutes * 60 * 1000);
 
   if (await userStore.isEmpty()) {
     console.warn('\n⚠  No users exist yet in the GAM database.');
@@ -199,6 +217,9 @@ async function main() {
   app.use('/api', ranksRoutes({ rankStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, userStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, userStore, caps) }));
   app.use('/api/apps', requireCapability(rankStore, userStore, 'manageApps'));
   app.use('/api', appsRoutes({ appStore, userStore, activityLog }));
+  // RESTful API integrations (Apps tab) — same capability as the rest of the tab.
+  app.use('/api/integrations', requireCapability(rankStore, userStore, 'manageApps'));
+  app.use('/api', integrationRoutes({ config, integrationStore, activityLog, reload: reloadIntegration }));
   app.use(['/api/activity', '/api/failed-logins'], requireCapability(rankStore, userStore, 'viewActivity'));
   app.use('/api', activityRoutes({ activityLog, failedLoginStore }));
   app.use('/api', passwordPolicyRoutes({ passwordPolicyStore, activityLog, requireCapability: (cap) => requireCapability(rankStore, userStore, cap), requireAnyCapability: (caps) => requireAnyCapability(rankStore, userStore, caps) }));

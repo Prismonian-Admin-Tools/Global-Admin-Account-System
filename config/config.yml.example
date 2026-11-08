@@ -109,6 +109,10 @@ ipLookup:
 # Rally requires an email address, so an account without one waits until
 # an email is set. See README → "Rally account sync".
 rally:
+  # Easiest: leave enabled false and connect Rally from the website instead
+  # — Apps tab → RESTful API → "Rally (WSAPI)" + API key. That key is stored
+  # encrypted, takes effect without a restart, and wins over the one below.
+  # enabled + apiKey here are only needed to configure the key in this file.
   enabled: false
   baseUrl: "https://rally1.rallydev.com"
   # A Rally API key for a Rally Subscription Administrator (only they can

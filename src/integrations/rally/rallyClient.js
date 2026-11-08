@@ -88,6 +88,16 @@ class RallyClient {
     return unwrap(json);
   }
 
+  /** The Rally user the API key belongs to (GET /user:current) — used by "Test connection". */
+  async currentUser() {
+    const result = await this.request('GET', '/user:current', {
+      query: { fetch: 'ObjectID,UserName,EmailAddress,DisplayName,SubscriptionAdmin,SubscriptionPermission,Disabled' },
+    });
+    const user = (result && result.User) || result;
+    if (!user || (!user.UserName && !user.ObjectID)) throw new RallyError('Rally returned no user for this API key');
+    return user;
+  }
+
   /** The (at most one) Rally user with this exact email address, or null. */
   async findUserByEmail(email) {
     if (!isQuerySafeEmail(email)) throw new RallyError(`Email address "${email}" can't be used in a Rally query`);
